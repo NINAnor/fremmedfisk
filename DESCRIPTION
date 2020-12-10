@@ -1,0 +1,20 @@
+Package: invasim
+Type: Package
+Title: Simulate Translocations And Impact Of Invasive Freswhater Fish
+Version: 0.1.1
+Author: Anders G. Finstad, Kim Magnus Bærum, Sam Perrin, Stefan Blumentrath
+Maintainer: anders finstad <anders.finstad@ntnu.no>
+Description: Simululate translocations, distribution, establishment and impact of invasive freshwater fish.
+License: GPL >= 2
+Encoding: UTF-8
+LazyData: true
+RoxygenNote: 6.0.1
+Suggests: dplyr,
+    dbplyr,
+    knitr,
+    rmarkdown,
+    FNN,
+    tidyr,
+    lubridate,
+    stringr
+VignetteBuilder: knitr
