@@ -57,9 +57,11 @@ focal_speciesid <- 26138
 start_year <- 1967
 end_year <- 2017
 
-conmat_schema <- "fremmedfisk"
-conmat_table <- "fremmedfisk_lake_connectivity"
-conmat_summary_table <- "fremmedfisk_lake_connectivity_summary"
+conmat_schema <- "invafish"
+conmat_table <- "invafish_lake_connectivity"
+conmat_summary_table <- "invafish_lake_connectivity_summary"
+
+slope_measure <- "slope_7_maximum"
 
 ### Setup database connection
 #Set connection parameters
@@ -111,6 +113,7 @@ geoselect_native <- get_historic_distribution(con, focal_speciesid)
 } else {
   geoselect_native <- SpatialPolygonsDataFrame(SpatialPolygons(list(), proj4string = CRS(as.character("+proj=longlat +datum=WGS84 +no_defs"))), data=data.frame())
 }
+
 counties <- dbGetQuery(con, 'SELECT DISTINCT (county) county FROM "AdministrativeUnits"."Fenoscandia_Municipality_polygon" WHERE "countryCode" = \'NO\' AND county NOT IN (\'Finnmark\',\'Troms\',\'Nordland\');')
 geoselect_no_species_pop_5000 <- dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) FROM
                                                   (SELECT id, geom FROM nofa.lake WHERE county IN (', paste0("\'", gsub(", ", "\', \'", toString(unique(counties[,1]))), "\'"), ')) AS al,
@@ -302,7 +305,7 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
             # select out downstream lakes that does not have species at start of time-slot
             if(use_slope_barrier==TRUE){
               # wbid_wrid_array <- get_wbid_wrid_array(con, species_lakes)
-              reachable_lakes_species <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_max_max", slope_barrier, conmat_schema, conmat_table)
+              reachable_lakes_species <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)
               if(length(reachable_lakes_species)>0){
                 reachable_lakes_species <- reachable_lakes_species[,1]
                 if(length(fish_barrier) > 0) {
