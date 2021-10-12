@@ -48,14 +48,14 @@ library(lubridate)
 library(data.table)
 library(FNN)
 library(sp)
-wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselect_native){
+wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,focal_species_str,geoselect_native){
   
   #######################################################
   # Reclassify establishMeans of focal species ----------------------------
   # based upon distr. polygon
   #######################################################
   
-  inndata_species <- inndata[inndata$scientificName==focal_species,]
+  inndata_species <- inndata[inndata$scientificName %in% focal_species,]
   
   # load spatial filter (polygon) and set projection to epsg:4326
   latlong = "+init=epsg:4326"
@@ -78,7 +78,7 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   # Note: clipping spatial data in R by using [] from http://robinlovelace.net/r/2014/07/29/clipping-with-r.html
   inndata_geoselect <- inndata_species[geoselect_spdf, ]
   
-  inndata$establishmentMeans <- ifelse(!(inndata$waterBodyID %in% inndata_geoselect@data$waterBodyID) & inndata$scientificName==focal_species,"introduced",
+  inndata$establishmentMeans <- ifelse(!(inndata$waterBodyID %in% inndata_geoselect@data$waterBodyID) & inndata$scientificName %in% focal_species,"introduced",
                                        "native")
   
   
@@ -128,7 +128,7 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   # Select locations of all populations of focal species at start of timeslot i.
   # Useatd for calcualation distance to closest population
   data1 <- inndata2 %>%
-    filter(year<=start_year,scientificName==focal_species) %>%
+    filter(year<=start_year,scientificName %in% focal_species) %>%
     dplyr::select(utm_x,utm_y,waterBodyID) %>% distinct()
   
   # Select all locations for which there where observations of fish
@@ -166,13 +166,13 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   # we first need to check out that the species not have been
   # observed in the given waterbody before.
   
-  wb_fish_j <- inndata3 %>% filter(scientificName==focal_species,year<=start_year) %>%
+  wb_fish_j <- inndata3 %>% filter(scientificName %in% focal_species,year<=start_year) %>%
     dplyr::select(waterBodyID)
   
   # Then, select events with observation of focal species in time-slot,
   # where focal species are classified as introduced.
   outdata_temp2 <- inndata3 %>%
-    dplyr::filter(scientificName==focal_species,
+    dplyr::filter(scientificName %in% focal_species,
                   year<=end_year,
                   year>=start_year,
                   establishmentMeans=="introduced",
@@ -183,7 +183,7 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   inndata3$introduced <- ifelse(inndata$eventID %in% outdata_temp2$eventID,
                                 1,0)
   
-  inndata3$focal_species <- focal_species
+  inndata3$focal_species <- focal_species_str
   
   
   #########################################################################################
@@ -202,7 +202,7 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   tmp <- inndata3 %>% select_if(is.numeric)
   
   aggdata2 <- tmp %>% group_by(waterBodyID) %>% summarise_all(funs(max))
-  aggdata2$focal_species <- focal_species
+  aggdata2$focal_species <- focal_species_str
   
   # remove all presence/absence data for species not recorded in selected area
   # (to clean up outdata)
@@ -234,7 +234,7 @@ wrangle_and_slice <- function(start_year,end_year,inndata,focal_species,geoselec
   outdata[["data"]] <- aggdata3
   outdata[["start_year"]] <- start_year
   outdata[["end_year"]] <- end_year
-  outdata[["focal_species"]] <- focal_species
+  outdata[["focal_species"]] <- focal_species_str
   
   return(outdata)
   

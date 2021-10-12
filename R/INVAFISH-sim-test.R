@@ -1,3 +1,13 @@
+#!/usr/bin/env Rscript
+
+
+# To clarify
+# - "start populations" kun introduserte eller alle, hva med ukjente
+# - Hvordan håndtere forekomst av flere arter fra en gruppe i et vann
+# - Hvordan håndtere forekomst av flere arter fra en gruppe i et vann
+
+
+
 if (!require('devtools', character.only=T, quietly=T)) {
   # Requires OpenSSL on the system
   install.packages('devtools')
@@ -27,32 +37,11 @@ setwd(scriptdir)
 simdir <- '~/temp/'
 try(system(paste0('mkdir ', simdir)))
 
-slope_thresholds <- list("26181"=c(600, 700, 800), # gjedde
-                         "26436"=c(600, 700, 800), # solabbor
-                         "26138"=c(600, 700, 800)  # ørekyt
-                         )
-
-brt_models <- list("26181"="brt_mod_norway_fremmedfisk_Esox lucius.rds", # gjedde
-                   "26436"="brt_mod_norway_fremmedfisk_Lepomis gibbosus.rds", # solabbor
-                   "26138"="brt_mod_norway_fremmedfisk_Phoxinus phoxinus.rds"  # ørekyt
-)
-
-spec_scenarios <- list("26181"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=NA),
-                                    "scenario_1"=list("exwaterbodyID"=4118447, fish_barrier=NA, below=NA),
-                                    "scenario_2"=list("exwaterbodyID"=c(4118446, 4118447), fish_barrier=NA, below=NA)
-                                    ), # gjedde
-                       "26436"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=TRUE),
-                                    "scenario_1"=list("exwaterbodyID"="all", fish_barrier=NA, below=TRUE)
-                                    ), # solabbor
-                       "26138"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=NA),
-                                    "scenario_1"=list("exwaterbodyID"=4110252, fish_barrier=4110252, below=TRUE),
-                                    "scenario_2"=list("exwaterbodyID"=NA, fish_barrier=4110252, below=FALSE)
-                                    ) # ørekyt
-                      )
+slope_thresholds <- c(600, 700, 800)
 
 brt_dir <- "/data/R/Prosjekter/13845000_invafish/"
 
-focal_speciesid <- 26138
+focal_group <- "Agn"
 
 start_year <- 1967
 end_year <- 2017
@@ -60,6 +49,8 @@ end_year <- 2017
 conmat_schema <- "invafish"
 conmat_table <- "invafish_lake_connectivity"
 conmat_summary_table <- "invafish_lake_connectivity_summary"
+
+project_schema <- "fremmedfisk"
 
 slope_measure <- "slope_7_maximum"
 
@@ -91,33 +82,88 @@ pool <- dbPool(
 
 con <- poolCheckout(pool)
 
-focal_species <- dbGetQuery(con, paste0('SELECT "scientificName" FROM nofa.l_taxon WHERE "taxonID" = ', focal_speciesid, ';'))[,1]
-focal_species_str <- gsub(" ", "_", focal_species)
-focal_species_slope <- slope_thresholds[[as.character(focal_speciesid)]]
-focal_species_scenarios <- spec_scenarios[[as.character(focal_speciesid)]]
 
-### Hent ut alle vannregioner fra konnektivitetsmatrisa
 # Run git_access_connectivity_matrix2.R
 source('./R/git_access_connectivity_matrix2.R')
-wbid_wrid <- get_wbid_wrid(con, "fremmedfisk")
+# git_wrangle.R needs a code review with regards to NULL handling in dates
+source('./R/git_wrangle.R')
+#add species to new loc_env dataframe based on outdata_data_gjedde
+source('./R/get_lake_environment.R')
+#add recalculated closest distance based on new data
+source('./R/f_calc_distance.R')
 
-# From dataIO.R
-source('./R/dataIO.R')
-get_inndata(serveradress=pg_host, datafolder=simdir)
-inndata <- readRDS(paste0(simdir, "view_occurrence_by_event.rds", sep=''))
 
-# From get_geoselect_native.R
-source('./R/get_geoselect_native.R')
-if(focal_speciesid != 26436) {
-geoselect_native <- get_historic_distribution(con, focal_speciesid)
-} else {
+brt_models <- list("Agn"="brt_mod_norway_fremmedfisk_Agn.rds", # Agn
+                   "26436"="brt_mod_norway_fremmedfisk_Lepomis gibbosus.rds", # solabbor
+                   "26138"="brt_mod_norway_fremmedfisk_Phoxinus phoxinus.rds"  # ørekyt
+)
+
+spec_scenarios <- list("Agn"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=NA),
+                                    "scenario_1"=list("exwaterbodyID"=4118447, fish_barrier=NA, below=NA),
+                                    "scenario_2"=list("exwaterbodyID"=c(4118446, 4118447), fish_barrier=NA, below=NA)
+), # Agn
+"26436"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=TRUE),
+             "scenario_1"=list("exwaterbodyID"="all", fish_barrier=NA, below=TRUE)
+), # solabbor
+"26138"=list("scenario_0"=list("exwaterbodyID"=NA, fish_barrier=NA, below=NA),
+             "scenario_1"=list("exwaterbodyID"=4110252, fish_barrier=4110252, below=TRUE),
+             "scenario_2"=list("exwaterbodyID"=NA, fish_barrier=4110252, below=FALSE)
+) # ørekyt
+)
+
+
+
+focal_species_group <- dbGetQuery(con, paste0('SELECT "species_group", string_agg(CAST(taxonid AS varchar), \',\') AS taxonid,  string_agg(CAST("scientificName" AS varchar), \',\') AS scientificname FROM (SELECT * FROM fremmedfisk.species_groups NATURAL INNER JOIN (SELECT "taxonID" AS taxonid, "scientificName" FROM nofa.l_taxon) AS t WHERE species_group = \'',focal_group,'\') AS x GROUP BY "species_group";')) # WHERE "taxonID" = ', focal_group, ';'))[,1]
+  #dbGetQuery(con, paste0('SELECT "taxonID", scientificName" FROM nofa.l_taxon WHERE "taxonID" = ', focal_group, ';'))[,1]
+focal_species_str <- tolower(focal_group)
+focal_species_slope <- slope_thresholds
+focal_species_scenarios <- spec_scenarios[[as.character(focal_group)]]
+focal_species <- strsplit(focal_species_group[,3], ",")[[1]]
+
+project_schema <- "fremmedfisk"
+occurrence_view_name <- paste0(focal_species_str, "_occurrence")
+occurrence_view <- paste0('"', project_schema, '"."', occurrence_view_name, '"')
+
+
+dbGetQuery(con, paste0('DROP VIEW IF EXISTS ', occurrence_view, ';
+CREATE VIEW ', occurrence_view, ' AS SELECT 
+  l.*,
+  e."dateStart",
+  e."dateEnd",
+  e.modified,
+  o.*
+    FROM (SELECT 
+        "taxonID",
+        "occurrenceStatus", 
+        "establishmentMeans", 
+        "eventID"
+        FROM nofa.occurrence
+        WHERE "taxonID" IN (', gsub(",", ", ", focal_species_group[,2]), ') AND "occurrenceStatus" = \'present\') AS o
+NATURAL LEFT JOIN nofa.event AS e
+LEFT JOIN (SELECT "waterBodyID", "locationID" FROM nofa.location WHERE "countryCode" = \'NO\') AS l USING ("locationID")
+WHERE "locationID" IS NOT NULL AND "waterBodyID" IS NOT NULL;'))
+
+
+### Hent ut alle vannregioner fra innsjødatasettet
+wbid_wrid <- dbGetQuery(con, 'SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake WHERE ecco_biwa_wr IS NOT NULL;') # get_wbid_wrid(con)
+
+# Get occurrences
+inndata <- tbl(con, sql("SELECT * FROM nofa.view_occurrence_by_event")) %>% collect()
+
+# From get_geoselect_native.R - to be replaced by quality check from Trygve
+# source('./R/get_geoselect_native.R')
+#if(focal_speciesid != 26436) {
+#geoselect_native <- get_historic_distribution(con, focal_speciesid)
+#} else {
   geoselect_native <- SpatialPolygonsDataFrame(SpatialPolygons(list(), proj4string = CRS(as.character("+proj=longlat +datum=WGS84 +no_defs"))), data=data.frame())
-}
+#}
 
-counties <- dbGetQuery(con, 'SELECT DISTINCT (county) county FROM "AdministrativeUnits"."Fenoscandia_Municipality_polygon" WHERE "countryCode" = \'NO\' AND county NOT IN (\'Finnmark\',\'Troms\',\'Nordland\');')
+# Should we keep county specific data handling? maybe better to drop it...
+counties <- dbGetQuery(con, 'SELECT DISTINCT (county) county FROM "AdministrativeUnits"."Fenoscandia_Municipality_polygon" WHERE "countryCode" = \'NO\';')  # AND county NOT IN (\'Finnmark\',\'Troms\',\'Nordland\');')
+
 geoselect_no_species_pop_5000 <- dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) FROM
-                                                  (SELECT id, geom FROM nofa.lake WHERE county IN (', paste0("\'", gsub(", ", "\', \'", toString(unique(counties[,1]))), "\'"), ')) AS al,
-                                           (SELECT geom FROM nofa.lake WHERE id IN (SELECT "waterBodyID" FROM "fremmedfisk"."fremmedfisk_', focal_speciesid, '")) AS ol
+                                                  (SELECT id, geom FROM nofa.lake WHERE ARRAY[\'NO\'::varchar] <@ "countryCodes") AS al,
+                                           (SELECT geom FROM nofa.lake WHERE id IN (SELECT "waterBodyID" FROM ', occurrence_view, ')) AS ol
                                            WHERE ST_DWithin(al.geom, ol.geom, 5000)
                                            GROUP BY al.id'))
 names(geoselect_no_species_pop_5000)[2] = "n_pop"
@@ -128,16 +174,16 @@ inndata["n_pop"][is.na(inndata["n_pop"])] <- 0
 # From git_wrangle.R
 # Warning message for NULL in endDate
 # git_wrangle.R needs a code review with regards to NULL handling in dates
-source('./R/git_wrangle.R')
-outdata_list <- wrangle_and_slice(inndata=inndata,start_year,end_year,focal_species,geoselect_native)
+outdata_list <- wrangle_and_slice(inndata=inndata,start_year,end_year,focal_species,focal_species_str,geoselect_native)
 inndata_timeslot <- outdata_list$data
 
 # Get lake environment data from get_lake_environment.R
 #add species to new loc_env dataframe based on outdata_data_gjedde
-source('./R/get_lake_environment.R')
 lake_env <- get_lake_environment(con, wbid_wrid$waterBodyID)
 
-lake_env[focal_species_str] <- inndata_timeslot[focal_species_str][match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID),]
+for(s in focal_species) {
+  lake_env[focal_species_str] <- inndata_timeslot[gsub(" ", "_", s)][match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID),]
+}
 lake_env[focal_species_str][is.na(lake_env[focal_species_str])] <- 0
 
 lake_env$introduced <- inndata_timeslot$introduced[match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID)]
@@ -147,9 +193,10 @@ lake_env <- merge(lake_env, geoselect_no_species_pop_5000, by="waterBodyID", all
 lake_env$n_pop <- ifelse(is.na(lake_env$n_pop), 0, lake_env$n_pop)
 
 #add recalculated closest distance based on new data
-source('./R/f_calc_distance.R')
-a <- f_calc_dist(outdata=lake_env,species=focal_species)
+a <- f_calc_dist(outdata=lake_env,species=focal_species_str)
 lake_env$dist_to_closest_pop_log <- log(a$dist_to_closest_pop)
+
+
 
 
 

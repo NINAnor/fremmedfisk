@@ -67,9 +67,9 @@ get_wrids <- function(db_conection, connectivity_schema, connectivity_table) {
 # Eksempel
 # wrids <- get_wrids(con, "fremmedfisk", "fremmedfisk_lake_connectivity_summary")
 
-### Hent ut data frame med kombinasjon av waterbodyID for alle innsj?er (kolonne 1) og id for vannregioner (kolonne 2) (her er det kun vannregioner som inneholder innsjøer)
-get_wbid_wrid <- function(db_conection, connectivity_schema) {
-  sql_string <- paste0('SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake WHERE ecco_biwa_wr IN (SELECT wrid FROM ', connectivity_schema, '.wrids);')
+### Hent ut data frame med kombinasjon av waterbodyID for alle innsjoeer (kolonne 1) og id for vannregioner (kolonne 2) (her er det kun vannregioner som inneholder innsjøer)
+get_wbid_wrid <- function(db_conection) {
+  sql_string <- paste0('SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake;')
   res <- dbGetQuery(db_conection, sql_string)
   res
 }

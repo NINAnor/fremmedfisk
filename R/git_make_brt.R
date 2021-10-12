@@ -39,7 +39,7 @@ outdata <-inndata_timeslot[inndata_timeslot$countryCode =="NO",]  #lake_env[lake
 #outdata <- merge(inndata_timeslot[,c('waterBodyID')], lake_env, by='waterBodyID', all.y=FALSE)
 
 outdata$countryCode <- factor(outdata$countryCode)
-outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
+#outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
 #outdata <- outdata %>% filter((county %in% c("Aust-Agder","Vest-Agder","Telemark","Rogaland")))
 outdata$county <- factor(outdata$county)
 # outdata <- outdata[outdata$minimumElevationInMeters>0,]
@@ -57,6 +57,8 @@ covariates <- c("distance_to_road_log", "dist_to_closest_pop_log", "SCI", "eurol
 #analyse.df <- outdata %>% dplyr::filter_(select_focal)
 analyse.df <- as.data.frame(outdata) # convert to data.frame - needed for gbm.step input
 
+# Remove NoData
+analyse.df <- analyse.df[!is.na(analyse.df$introduced),]
 
 ###############################
 # part 2: Make the brt model
@@ -65,7 +67,7 @@ analyse.df <- as.data.frame(outdata) # convert to data.frame - needed for gbm.st
 
 #It is encuraged to do this with paralell computing speeds the prosess up to some extent.
 #Identify cores on current system
-cores <- detectCores(all.tests = FALSE, logical = FALSE) - 2
+cores <- detectCores(all.tests = FALSE, logical = FALSE) - 8
 # Outer loop has 9 items, the inner 5
 cores
 
