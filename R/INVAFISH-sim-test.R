@@ -5,7 +5,10 @@
 # - "start populations" kun introduserte eller alle, hva med ukjente
 # - Hvordan håndtere forekomst av flere arter fra en gruppe i et vann
 # - Hvordan håndtere forekomst av flere arter fra en gruppe i et vann
-
+#   Relevant i f_predict_introduction_events_gmb
+# - Hvordan håndtere sampling bias i rom og tid (begge er ofte skev fordelt)
+#   Relevant i f_predict_introduction_events_gmb og kanskje også bygging av gbm
+# Parallelize simulations (they are slow (both predictions and with many lakes)
 
 
 if (!require('devtools', character.only=T, quietly=T)) {
@@ -34,12 +37,11 @@ libraries(req_packages)
 scriptdir <- '~/INVAFISH-sim/'
 setwd(scriptdir)
 
-simdir <- '~/temp/'
-try(system(paste0('mkdir ', simdir)))
-
 slope_thresholds <- c(600, 700, 800)
 
 brt_dir <- "/data/R/Prosjekter/13845000_invafish/"
+simdir <- paste0(brt_dir, 'temp/')
+try(system(paste0('mkdir ', simdir)))
 
 focal_group <- "Agn"
 
@@ -91,6 +93,7 @@ source('./R/git_wrangle.R')
 source('./R/get_lake_environment.R')
 #add recalculated closest distance based on new data
 source('./R/f_calc_distance.R')
+source('./R/git_predict_introduction_events.R')
 
 
 brt_models <- list("Agn"="brt_mod_norway_fremmedfisk_Agn.rds", # Agn
@@ -172,9 +175,8 @@ inndata <- merge(inndata, geoselect_no_species_pop_5000, all.x=TRUE)
 inndata["n_pop"][is.na(inndata["n_pop"])] <- 0
 
 # From git_wrangle.R
-# Warning message for NULL in endDate
-# git_wrangle.R needs a code review with regards to NULL handling in dates
-outdata_list <- wrangle_and_slice(inndata=inndata,start_year,end_year,focal_species,focal_species_str,geoselect_native)
+outdata_list <- wrangle_and_slice(start_year,end_year,inndata,focal_species,focal_species_str,geoselect_native)
+
 inndata_timeslot <- outdata_list$data
 
 # Get lake environment data from get_lake_environment.R
@@ -207,7 +209,7 @@ covariates <- brt_mod$var.names
 
 outdata <-inndata_timeslot[inndata_timeslot$countryCode =="NO",]  #lake_env[lake_env$countryCode =="NO",]
 outdata$countryCode <- factor(outdata$countryCode)
-outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
+#outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
 outdata$county <- factor(outdata$county)
 analyse.df <- as.data.frame(outdata)
 if(focal_speciesid==26436){
@@ -223,7 +225,7 @@ if(focal_speciesid==26436){
 #inndata <- loc_env[loc_env$waterBodyID %in% wbid_wrid$waterBodyID,]
 
 # simulation and time specific stuff
-Nsims <- 500 # number of iterations
+Nsims <- 100 # number of iterations
 sim_duration <- 1 # Duration of the scenario, in years (will be corced to multiple of time_slot_length)
 time_slot_length <- 50 # Duration of the time-slot, in years (time-span of each time-slot)
 gmb_time_slot_length <- 50 # Duration of the time-slot, in years, used to estimate establishment probability
@@ -288,12 +290,12 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
       } else {
         con <- poolCheckout(pool)
         # recalculate n_pop
-        geoselect_no_occ_pop_5000 <- dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) AS n_pop FROM
-                                                            (SELECT id, geom FROM nofa.lake WHERE county IN (', paste0("\'", gsub(", ", "\', \'", toString(unique(counties[,1]))), "\'"), ')) AS al,
-                                                            (SELECT geom FROM nofa.lake WHERE id IN (SELECT "waterBodyID" FROM "fremmedfisk"."fremmedfisk_', focal_speciesid, '") AND id NOT IN (',toString(unique(exwaterbodyID)),')) AS ol
-                                                            WHERE ST_DWithin(al.geom, ol.geom, 5000)
-                                                            GROUP BY al.id'))
-
+        geoselect_no_occ_pop_5000 <-  dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) FROM
+                                                  (SELECT id, geom FROM nofa.lake WHERE ARRAY[\'NO\'::varchar] <@ "countryCodes") AS al,
+                                           (SELECT geom FROM nofa.lake WHERE id IN (SELECT "waterBodyID" FROM ', occurrence_view, ') AND id NOT IN (',toString(unique(exwaterbodyID)),')) AS ol
+                                           WHERE ST_DWithin(al.geom, ol.geom, 5000)
+                                           GROUP BY al.id'))
+        
         inndata_sim1 <- subset(inndata_sim1, select = -c(n_pop))
         inndata_sim1 <- merge(inndata_sim1, geoselect_no_occ_pop_5000, all.x=TRUE)
         inndata_sim1["n_pop"][is.na(inndata_sim1["n_pop"])] <- 0
@@ -308,7 +310,7 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
       if(!is.na(fish_barrier)){
         con <- poolCheckout(pool)
         fish_barrier_loc <- fish_barrier
-        fish_barrier <- as.integer(strsplit(dbGetQuery(con, paste0('SELECT upstream_lakes FROM fremmedfisk.fremmedfisk_lake_connectivity_summary WHERE "lakeID" = ', fish_barrier_loc, ';'))$upstream_lakes, ',')[[1]])
+        fish_barrier <- as.integer(strsplit(dbGetQuery(con, paste0('SELECT upstream_lakes FROM ', conmat_schema, '.', conmat_summary_table, ' WHERE "lakeID" = ', fish_barrier_loc, ';'))$upstream_lakes, ',')[[1]])
         if(scenario[["below"]]){
           fish_barrier <- append(fish_barrier, fish_barrier_loc)
         } else {
@@ -316,8 +318,6 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
         }
       }
     for(slope_barrier in barriers) { # max slope for migration upstream
-
-      source('./R/git_predict_introduction_events.R')
 
       # j simulation runs...
       for(j in 1:Nsims){
@@ -329,7 +329,7 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
         for(i in 1:n_time_slots){
 
           ### i.1 predict translocations and store new introductions in temp object
-          tmp_trans <- f_predict_introduction_events_gmb(inndata_sim,brt_mod,analyse.df,focal_species,temp_inc,start_year_sim)
+          tmp_trans <- f_predict_introduction_events_gmb(inndata_sim,brt_mod,analyse.df,focal_species_str,temp_inc,start_year_sim, covariates)
           tmp_trans <- tmp_trans[!is.na(tmp_trans[focal_species_str]),]
           # include secondary dispeersal?
           if(with_secondary==TRUE && length(tmp_trans[tmp_trans$introduced==1,]$waterBodyID)>0){
@@ -479,7 +479,7 @@ for(sec_disp in TRUE) { #c(FALSE, TRUE)
       slopeout[[paste0("sim_output_", slope_barrier)]] <- sim_output_lake
 
       con <- poolCheckout(pool)
-      dbWriteTable(con, c(conmat_schema,
+      dbWriteTable(con, c(project_schema,
                           paste("sim",
                                  tolower(focal_species_str),
                                  scenario_name,
