@@ -202,6 +202,7 @@ lake_env$dist_to_closest_pop_log <- log(a$dist_to_closest_pop)
 
 
 
+
 # Get model from git_make_brt.R
 # source('./R/git_make_brt.R')
 brt_mod <- readRDS(paste0(brt_dir, brt_models[[as.character(focal_speciesid)]]))
@@ -216,6 +217,8 @@ if(focal_speciesid==26436){
   analyse.df <- subset(analyse.df, select = -c(dist_to_closest_pop_log))
   analyse.df <- merge(analyse.df, lake_env[,c("waterBodyID", "dist_to_closest_pop_log")])
 }
+
+
 
 #.........................................................................................
 # Define input variables ----
