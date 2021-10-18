@@ -21,6 +21,9 @@ f_calc_dist <- function(outdata,species){
   # Calculate distance to closest population of focal species -------
   # at start of time-slot for all locations with fish observations at end
   # of time-slot i. Use get.knnx from the FNN package.
+  if (length(data1[,1])<2) {
+    data1 <- rbind(data1, data1)
+  }
   nn <- get.knnx(data1[c("utm_x","utm_y")],data2[c("utm_x","utm_y")],2)
 
   dist_to_closest_pop <- ifelse(nn$nn.dist[,1]==0,nn$nn.dist[,2],nn$nn.dist[,1])
