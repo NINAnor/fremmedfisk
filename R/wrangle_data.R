@@ -44,7 +44,7 @@ opt = parse_args(opt_parser);
 
 # 
 # To run in IDE/RStudio skip option parsing and use this opt list
-# opt <- list("species_group"="Agn", dbname"="nofa", "user"="stefan", "port"=5432, host="vm-srv-wallace.vm.ntnu.no", "scriptdir"='~/fremmedfisk/', "connectivity_schema"="invafish", "project_schema"="fremmedfisk", "workdir"="/data/R/Prosjekter/13845000_invafish/", "start_year"=1967, "time_slot_length"=50)
+# opt <- list("species_group"="Eksotisk", "dbname"="nofa", "user"="stefan", "port"=5432, "host"="vm-srv-wallace.vm.ntnu.no", "scriptdir"='~/fremmedfisk/', "connectivity_schema"="invafish", "project_schema"="fremmedfisk", "workdir"="/data/R/Prosjekter/13845000_invafish/", "start_year"=1967, "time_slot_length"=50)
 
 # To clarify
 # - "start populations" kun introduserte eller alle, hva med ukjente
