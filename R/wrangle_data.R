@@ -37,7 +37,7 @@ opt = parse_args(opt_parser);
 
 # Run with arguments:
 # Rscript --vanilla ~/fremmedfisk/R/wrangle_data.R -s Agn -H "vm-srv-wallace.vm.ntnu.no" -u stefan -D ~/fremmedfisk/ -c invafish -P fremmedfisk -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -y 1967 -l 50
-
+#
 # Run script on the command lin in parallel for all species groups:
 # species_groups=$(psql -h "vm-srv-wallace.vm.ntnu.no" -d nofa -U "stefan" -At -c "SELECT DISTINCT ON (species_group) species_group FROM fremmedfisk.species_groups;")
 # echo "$species_groups" | awk '{print("Rscript --vanilla ~/fremmedfisk/R/wrangle_data.R -s " $1 " -H \"vm-srv-wallace.vm.ntnu.no\" -u stefan -D ~/fremmedfisk/ -c invafish -P fremmedfisk -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -y 1967 -l 50 \0")}' | xargs -0 -P 5 -I{} bash -c "{}"
@@ -152,9 +152,10 @@ focal_species <- strsplit(focal_species_group[,3], ",")[[1]]
 occurrence_view_name <- paste0(focal_species_str, "_occurrence")
 occurrence_view <- paste0('"', project_schema, '"."', occurrence_view_name, '"')
 
+view_exists <- tryCatch(dbGetQuery(con, paste0('SELECT modified FROM ', occurrence_view, ' LIMIT 1;')), error=function(cond) {return(NA)}, warning=function(cond) {return(NA)})
 
-dbGetQuery(con, paste0('DROP VIEW IF EXISTS ', occurrence_view, ';
-CREATE VIEW ', occurrence_view, ' AS SELECT 
+if(is.na(view_exists)) {
+dbGetQuery(con, paste0('CREATE VIEW ', occurrence_view, ' AS SELECT 
   l.*,
   e."dateStart",
   e."dateEnd",
@@ -170,10 +171,10 @@ CREATE VIEW ', occurrence_view, ' AS SELECT
 NATURAL LEFT JOIN nofa.event AS e
 LEFT JOIN (SELECT "waterBodyID", "locationID" FROM nofa.location WHERE "countryCode" = \'NO\') AS l USING ("locationID")
 WHERE "locationID" IS NOT NULL AND "waterBodyID" IS NOT NULL;'))
-
+}
 
 ### Hent ut alle vannregioner fra innsjødatasettet
-wbid_wrid <- dbGetQuery(con, 'SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake WHERE ecco_biwa_wr IS NOT NULL;') # get_wbid_wrid(con)
+wbid_wrid <- dbGetQuery(con, 'SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake WHERE ecco_biwa_wr IS NOT NULL AND ARRAY[\'NO\'::varchar] <@ "countryCodes";') # get_wbid_wrid(con)
 
 # Get occurrences
 inndata <- tbl(con, sql("SELECT * FROM nofa.view_occurrence_by_event")) %>% collect()
@@ -222,6 +223,9 @@ lake_env$n_pop <- ifelse(is.na(lake_env$n_pop), 0, lake_env$n_pop)
 #add recalculated closest distance based on new data
 a <- f_calc_dist(outdata=lake_env,species=focal_species_str)
 lake_env$dist_to_closest_pop_log <- log(a$dist_to_closest_pop)
+
+# Remove objects that should not be kept for the following operations
+# rm(opt)
 
 save.image(paste0(workdir,"_",focal_group,".RData"))
 
