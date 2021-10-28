@@ -28,7 +28,7 @@ f_predict_introduction_events_gmb <-function(outdata,brt_mod,traindata,species,t
   
   data_no_species<-outdata[outdata[[species2]] == 0,]
   data_w_species<-outdata[outdata[[species2]] == 1,]
-  data_no_species$eurolst_bio01<- data_no_species$eurolst_bio10+temp_inc #increase annual mean summer temperature for the period (scale to eurolist_bio10)
+  data_no_species$eurolst_bio01 <- data_no_species$eurolst_bio10+temp_inc #increase annual mean summer temperature for the period (scale to eurolist_bio10)
   data_no_species$prob_introduction<-predict.gbm(brt_mod,data_no_species,n.trees=brt_mod$gbm.cal$best.trees, type="response")#make probabilties over the full period
   #data_no_species$prob_introduction<-data_no_species$prob_introduction #annual estimates based on total introductions in time period
   data_no_species$introduced<-rbinom(length(data_no_species$prob_introduction), size = 1, prob=data_no_species$prob_introduction)
