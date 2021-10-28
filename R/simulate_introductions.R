@@ -31,6 +31,8 @@ option_list = list(
               help="Slope threshods used as estimate for dispersal barriers", metavar="character"),
   make_option(c("-n", "--nsims"), type="integer", default=500, 
               help="Number of simulations", metavar="integer"),
+  make_option(c("-l", "--time_slot_length"), type="integer", default=50, 
+              help="Length of the time slot in years", metavar="integer"),
   make_option(c("-N", "--scenario_name"), type="character", default="scenario_0", 
               help="Name of the scenario", metavar="character"),
   make_option(c("-p", "--percentage_extermination"), type="double", default=0.0, 
@@ -49,7 +51,7 @@ opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
 # To run in IDE/RStudio skip option parsing and use this opt list
-# opt <- list("species_group"="Agn", "workdir"="/data/R/Prosjekter/13845000_invafish/", "nsims"=100, "slope_measure"="slope_7_maximum", "slope_thresholds"="600,700,800")
+# opt <- list("species_group"="Agn", "workdir"="/data/R/Prosjekter/13845000_invafish/", "nsims"=100, "slope_measure"="slope_7_maximum", "slope_thresholds"="600,700,800", "temperature_increase"=0.0, "scenario_name"="scenario_0")
 
 # To clarify
 # - "start populations" kun introduserte eller alle, hva med ukjente
@@ -62,9 +64,10 @@ opt = parse_args(opt_parser);
 #   3. simulation and writing of data) so it can be run on the command line to avoid timeouts
 
 # Run with arguments:
-# Rscript --vanilla build_brt.R -s "Agn"
-
-
+# Rscript --vanilla R/simulate_introductions.R --species_group "Agn" --workdir "/data/R/Prosjekter/13845000_invafish/" --nsims 100 --slope_measure "slope_7_maximum" --slope_thresholds "600,700,800" --temperature_increase 0 --scenario_name "scenario_0"
+#
+# Run in parallel on the commandline with 15 parallel process divided by 5*100 NSims and 3 different slope thresholds (600, 700, 800)
+# for s in $(seq 1 5); do for t in 600 700 800; do echo $t $s; done; done | awk '{print("Rscript --vanilla R/simulate_introductions.R --species_group Agn --workdir /data/R/Prosjekter/13845000_invafish/ --nsims 100 --slope_measure slope_7_maximum --slope_thresholds", $1, "--temperature_increase 0 --scenario_name scenario_" $2, "\0")}' | xargs -0 -P15 -I{} bach -c "{}"
 
 if (!require('devtools', character.only=T, quietly=T)) {
   # Requires OpenSSL on the system
@@ -98,6 +101,7 @@ workdir <- opt$workdir
 focal_group <- opt$species_group
 
 Nsims <- opt$nsims # number of iterations
+print(Nsims)
 slope_measure <- opt$slope_measure
 focal_species_slope <- as.integer(str_split(opt$slope_thresholds, ",")[[1]])
 scenario_name <- opt$scenario_name
@@ -113,7 +117,7 @@ if("fish_barrier" %in% names(opt)) {
 }
 
 
-if (slope_measure & focal_species_slope) {
+if (!is.na(slope_measure) && !is.na(focal_species_slope)) {
   sec_disp <- TRUE
   use_slope_barrier <- TRUE
 } else{
@@ -125,29 +129,37 @@ if (slope_measure & focal_species_slope) {
 with_secondary <- sec_disp # should secondary spread be included in simulations?
 percentage_exter <- opt$percentage_extermination # Give the percentage of focal species populations one wants to exterminate before simulation
 
-temp_inc <- opt$temperature_increase # temperature increase
-
 # Set on or the other to true or false (for upstream dispersal). Probability is based on analyses from Sam and Stefan
 use_disp_probability <- FALSE # Currently not supported
 
-# Load wrangled data
+# Load wrangled data keep opt from this session
+opt_1 <- opt
 load(paste0(workdir,"_",focal_group,".RData"))
+opt_old <- opt
+opt <- opt_1
+rm(opt_1)
 
+print(Nsims)
 
-time_slot_length <- time_slot_length # Duration of the time-slot, in years (time-span of each time-slot), used to estimate establishment probability
+# time_slot_length <- opt_old$time_slot_length # Duration of the time-slot, in years (time-span of each time-slot), used to estimate establishment probability
+Nsims <- opt$nsims # number of iterations
+print(Nsims)
 n_time_slots <- 1 #as.integer(sim_duration/time_slot_length)
+time_slot_length <- end_year - start_year
 start_year_sim <- end_year
 end_year_sim <- start_year_sim + time_slot_length
+temp_inc <- opt$temperature_increase # temperature increase
+
 
 pg_drv <- RPostgreSQL::PostgreSQL()
 pg_db <- 'nofa'
 ### Setup database connection
-if (file.exists("~/.pgpass") & "host" %in% names(opt) & "user" %in% names(opt)) {
+if (file.exists("~/.pgpass") & "host" %in% names(opt_old) & "user" %in% names(opt_old)) {
   pgpass <- readLines("~/.pgpass")
-  pg_host <-opt$host
-  pg_db <- opt$dbname
-  pg_user <- opt$user
-  pg_password <- strsplit(pgpass[grepl(paste(opt$host, opt$port, opt$dbname, opt$user, sep=":"), pgpass)], ":")[[1]][5]
+  pg_host <-opt_old$host
+  pg_db <- opt_old$dbname
+  pg_user <- opt_old$user
+  pg_password <- strsplit(pgpass[grepl(paste(opt_old$host, opt_old$port, opt_old$dbname, opt_old$user, sep=":"), pgpass)], ":")[[1]][5]
 } else {
 #Set connection parameters
 host_msg <- 'Please enter host name:'
@@ -198,10 +210,10 @@ outdata$countryCode <- factor(outdata$countryCode)
 #outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
 outdata$county <- factor(outdata$county)
 analyse.df <- as.data.frame(outdata)
-if(focal_speciesid==26436){
-  analyse.df <- subset(analyse.df, select = -c(dist_to_closest_pop_log))
-  analyse.df <- merge(analyse.df, lake_env[,c("waterBodyID", "dist_to_closest_pop_log")])
-}
+# if(focal_speciesid==26436){
+#   analyse.df <- subset(analyse.df, select = -c(dist_to_closest_pop_log))
+#   analyse.df <- merge(analyse.df, lake_env[,c("waterBodyID", "dist_to_closest_pop_log")])
+# }
 
 #.........................................................................................
 # Define input variables ----
@@ -280,6 +292,8 @@ for(slope_barrier in barriers) { # max slope for migration upstream
 
   # j simulation runs...
   for(j in 1:Nsims){
+    
+    start_time <- Sys.time()
 
     inndata_sim <- as.data.frame(inndata_sim1) # reset dataset for each simulation run
 
@@ -311,6 +325,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
         # select out downstream lakes that does not have species at start of time-slot
         if(use_slope_barrier==TRUE){
           # wbid_wrid_array <- get_wbid_wrid_array(con, species_lakes)
+          # foreach(i=1:length(disperse_input$wrid)) %dopar% {print(paste0(disperse_input$wrid[i], disperse_input$waterBodyIDs[i]))}
           reachable_lakes_species <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)
           if(length(reachable_lakes_species)>0){
             reachable_lakes_species <- reachable_lakes_species[,1]
@@ -408,8 +423,9 @@ for(slope_barrier in barriers) { # max slope for migration upstream
       }
     } # end of i loop
 
+    time_elapsed <- Sys.time() - start_time
     # display progress
-    print(paste("sim-run: ",j,", out of: ",Nsims))
+    print(paste("sim-run: ",j,", out of: ",Nsims, ", took: ", format(time_elapsed, units="secs")))
 
   } # end of j loop
 
