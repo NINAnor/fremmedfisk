@@ -2,13 +2,13 @@
 # Calc. dist to closest pop #
 #############################
 
-f_calc_dist <- function(outdata,species){
+f_calc_dist <- function(outdata,occurrences){
   require(dplyr)
   require(FNN)
-  species2=str_replace(species, " ", "_")
+  #species2=str_replace(species, " ", "_")
   # Select locations of all populations of focal species at start of timeslot i.
   # Used for calcualation distance to closest population
-  data1 <-as.data.frame(outdata[outdata[[species2]] == 1,] %>%
+  data1 <-as.data.frame(outdata[outdata[[occurrences]] == 1,] %>%
                           dplyr::select(utm_x,utm_y,waterBodyID) %>% distinct())
   
   # Select all locations for which there where observations of

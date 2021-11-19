@@ -36,15 +36,15 @@ opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
 # Run with arguments:
-# Rscript --vanilla ~/fremmedfisk/R/wrangle_data.R -s Agn -H "vm-srv-wallace.vm.ntnu.no" -u stefan -D ~/fremmedfisk/ -c invafish -P fremmedfisk -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -y 1967 -l 50
+# Rscript --vanilla ~/fremmedfisk/R/wrangle_data.R -s Predator -H "vm-srv-wallace.vm.ntnu.no" -u stefan -D ~/fremmedfisk/ -c invafish -P fremmedfisk -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -y 1967 -l 50
 #
-# Run script on the command lin in parallel for all species groups:
+# Run script on the command line in parallel for all species groups:
 # species_groups=$(psql -h "vm-srv-wallace.vm.ntnu.no" -d nofa -U "stefan" -At -c "SELECT DISTINCT ON (species_group) species_group FROM fremmedfisk.species_groups;")
 # echo "$species_groups" | awk '{print("Rscript --vanilla ~/fremmedfisk/R/wrangle_data.R -s " $1 " -H \"vm-srv-wallace.vm.ntnu.no\" -u stefan -D ~/fremmedfisk/ -c invafish -P fremmedfisk -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -y 1967 -l 50 \0")}' | xargs -0 -P 5 -I{} bash -c "{}"
 
 # 
 # To run in IDE/RStudio skip option parsing and use this opt list
-# opt <- list("species_group"="Eksotisk", "dbname"="nofa", "user"="stefan", "port"=5432, "host"="vm-srv-wallace.vm.ntnu.no", "scriptdir"='~/fremmedfisk/', "connectivity_schema"="invafish", "project_schema"="fremmedfisk", "workdir"="/data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/", "start_year"=1967, "time_slot_length"=50)
+# opt <- list("species_group"="Predator", "dbname"="nofa", "user"="stefan", "port"=5432, "host"="vm-srv-wallace.vm.ntnu.no", "scriptdir"='~/fremmedfisk/', "connectivity_schema"="invafish", "project_schema"="fremmedfisk", "workdir"="/data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/", "start_year"=1967, "time_slot_length"=50)
 
 # To clarify
 # - "start populations" kun introduserte eller alle, hva med ukjente
@@ -60,8 +60,6 @@ opt = parse_args(opt_parser);
 # Parallelize simulations (they are slow (mainly predictions with many lakes)
 # Split script into three parts (1, data collection/wrangling, 2. model building,
 #   3. simulation and writing of data) so it can be run on the command line to avoid timeouts
-
-
 
 
 if (!require('devtools', character.only=T, quietly=T)) {
@@ -152,83 +150,127 @@ focal_species <- strsplit(focal_species_group[,3], ",")[[1]]
 occurrence_view_name <- paste0(focal_species_str, "_occurrence")
 occurrence_view <- paste0('"', project_schema, '"."', occurrence_view_name, '"')
 
-view_exists <- tryCatch(dbGetQuery(con, paste0('SELECT modified FROM ', occurrence_view, ' LIMIT 1;')), error=function(cond) {return(NA)}, warning=function(cond) {return(NA)})
+view_exists <- NA #tryCatch(dbGetQuery(con, paste0('SELECT "waterBodyID" FROM ', occurrence_view, ' LIMIT 1;')), error=function(cond) {return(NA)}, warning=function(cond) {return(NA)})
 
 if(is.na(view_exists)) {
-dbGetQuery(con, paste0('CREATE VIEW ', occurrence_view, ' AS SELECT 
-  l.*,
-  e."dateStart",
-  e."dateEnd",
-  e.modified,
-  o.*
-    FROM (SELECT 
-        "taxonID",
-        "occurrenceStatus", 
-        "establishmentMeans", 
-        "eventID"
-        FROM nofa.occurrence
-        WHERE "taxonID" IN (', gsub(",", ", ", focal_species_group[,2]), ') AND "occurrenceStatus" = \'present\') AS o
-NATURAL LEFT JOIN nofa.event AS e
-LEFT JOIN (SELECT "waterBodyID", "locationID" FROM nofa.location WHERE "countryCode" = \'NO\') AS l USING ("locationID")
-WHERE "locationID" IS NOT NULL AND "waterBodyID" IS NOT NULL;'))
+# year 500 is before any occurrences are registered in nofa
+dbGetQuery(con, paste0('DROP VIEW IF EXISTS', occurrence_view, ';\n CREATE VIEW ', occurrence_view, ' AS SELECT 
+"waterBodyID" FROM (SELECT (nofa.get_occurrence_status_timeslot(
+	\'', focal_species_group$taxonid,'\'::text, \'500-01-01\'::timestamp, \'', start_year,'-01-01\'::timestamp
+)).*) AS a
+WHERE "occurrenceStatus" = \'present\'
+ORDER BY "waterBodyID" ASC'))
 }
 
 ### Hent ut alle vannregioner fra innsjødatasettet
 wbid_wrid <- dbGetQuery(con, 'SELECT ecco_biwa_wr AS wrid, id AS "waterBodyID" FROM nofa.lake WHERE ecco_biwa_wr IS NOT NULL AND ARRAY[\'NO\'::varchar] <@ "countryCodes";') # get_wbid_wrid(con)
 
 # Get occurrences
-inndata <- tbl(con, sql("SELECT * FROM nofa.view_occurrence_by_event")) %>% collect()
+observation_lakes <- tbl(con, sql("SELECT DISTINCT ON (\"waterBodyID\") \"waterBodyID\" FROM nofa.view_occurrence_by_event WHERE \"countryCode\" = 'NO'")) %>% collect()
 
 # From get_geoselect_native.R - to be replaced by quality check from Trygve
 # source('./R/get_geoselect_native.R')
 #if(focal_speciesid != 26436) {
 #geoselect_native <- get_historic_distribution(con, focal_speciesid)
 #} else {
-  geoselect_native <- SpatialPolygonsDataFrame(SpatialPolygons(list(), proj4string = CRS(as.character("+proj=longlat +datum=WGS84 +no_defs"))), data=data.frame())
+#  geoselect_native <- SpatialPolygonsDataFrame(SpatialPolygons(list(), proj4string = CRS(as.character("+proj=longlat +datum=WGS84 +no_defs"))), data=data.frame())
 #}
 
 # Should we keep county specific data handling? maybe better to drop it...
-counties <- dbGetQuery(con, 'SELECT DISTINCT (county) county FROM "AdministrativeUnits"."Fenoscandia_Municipality_polygon" WHERE "countryCode" = \'NO\';')  # AND county NOT IN (\'Finnmark\',\'Troms\',\'Nordland\');')
+#counties <- dbGetQuery(con, 'SELECT DISTINCT (county) county FROM "AdministrativeUnits"."Fenoscandia_Municipality_polygon" WHERE "countryCode" = \'NO\';')  # AND county NOT IN (\'Finnmark\',\'Troms\',\'Nordland\');')
 
 geoselect_no_species_pop_5000 <- dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) FROM
                                                   (SELECT id, geom FROM nofa.lake WHERE ARRAY[\'NO\'::varchar] <@ "countryCodes") AS al,
-                                           (SELECT geom FROM nofa.lake WHERE id IN (SELECT "waterBodyID" FROM ', occurrence_view, ')) AS ol
-                                           WHERE ST_DWithin(al.geom, ol.geom, 5000)
+                                           (SELECT nl.id, nl.geom FROM (SELECT "waterBodyID" AS id FROM ', occurrence_view, ') AS ov NATURAL LEFT JOIN nofa.lake AS nl) AS ol
+                                           WHERE ST_DWithin(al.geom, ol.geom, 5000) AND al.id != ol.id
                                            GROUP BY al.id'))
 names(geoselect_no_species_pop_5000)[2] = "n_pop"
 
-inndata <- merge(inndata, geoselect_no_species_pop_5000, all.x=TRUE)
-inndata["n_pop"][is.na(inndata["n_pop"])] <- 0
-
-# From git_wrangle.R
-outdata_list <- wrangle_and_slice(start_year,end_year,inndata,focal_species,focal_species_str,geoselect_native)
-
-inndata_timeslot <- outdata_list$data
 
 # Get lake environment data from get_lake_environment.R
-#add species to new loc_env dataframe based on outdata_data_gjedde
+# add species to new loc_env dataframe based on outdata_data_gjedde
 lake_env <- get_lake_environment(con, wbid_wrid$waterBodyID)
+lake_env$decimalLatitude_R<-round(lake_env$decimalLatitude,1)
 
-for(s in focal_species) {
-  lake_env[focal_species_str] <- inndata_timeslot[gsub(" ", "_", s)][match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID),]
-}
-lake_env[focal_species_str][is.na(lake_env[focal_species_str])] <- 0
+lake_env <- merge(lake_env, geoselect_no_species_pop_5000, all.x=TRUE)
+lake_env["n_pop"][is.na(lake_env["n_pop"])] <- 0
 
-lake_env$introduced <- inndata_timeslot$introduced[match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID)]
-lake_env$introduced[is.na(lake_env$introduced)] <- 0
 
-lake_env <- merge(lake_env, geoselect_no_species_pop_5000, by="waterBodyID", all.x=TRUE)
-lake_env$n_pop <- ifelse(is.na(lake_env$n_pop), 0, lake_env$n_pop)
+lake_env <- merge(lake_env, data.frame(waterBodyID=observation_lakes, observation_lake=1), all.x=TRUE)
+lake_env["observation_lake"][is.na(lake_env["observation_lake"])] <- 0
+
+# From git_wrangle.R
+#outdata_list <- wrangle_and_slice(start_year,end_year,inndata,focal_species,focal_species_str,geoselect_native)
+
+#inndata_timeslot <- outdata_list$data
+
+occurrences_start <- dbGetQuery(con, paste0('SELECT  "waterBodyID", "taxonID", "occurrenceStatus", "establishmentMeans" 
+FROM (SELECT (nofa.get_occurrence_status_timeslot(
+  \'', focal_species_group$taxonid,'\'::text, \'500-01-01\'::timestamp, \'', start_year,'-01-01\'::timestamp, NULL, NULL, \'NO\'
+)).*) AS a
+-- WHERE "occurrenceStatus" = \'present\''))
+names(occurrences_start) <- c("waterBodyID", "taxonID", paste("occurrenceStatus", start_year, sep='_'), paste("establishmentMeans", start_year, sep='_'))
+
+occurrences_end <- dbGetQuery(con, paste0('SELECT "waterBodyID", "taxonID", "occurrenceStatus", "establishmentMeans", "presentWithinTimeslot" 
+FROM (SELECT (nofa.get_occurrence_status_timeslot(
+  \'', focal_species_group$taxonid,'\'::text, \'', start_year,'-01-01\'::timestamp, \'', end_year-1,'-12-31\'::timestamp, NULL, NULL, \'NO\'
+)).*) AS a -- WHERE "occurrenceStatus" = \'present\''))
+names(occurrences_end) <- c("waterBodyID", "taxonID", paste("occurrenceStatus", end_year, sep='_'), paste("establishmentMeans", end_year, sep='_'), "presentWithinTimeslot")
+
+occurrences_timeslot <- merge(occurrences_start, occurrences_end, by=c("waterBodyID", "taxonID"), all.x=TRUE, all.y=TRUE)
+
+occurrences_timeslot[paste("occurrenceStatus", start_year, sep='_')] <- as.integer(ifelse(occurrences_timeslot[paste("occurrenceStatus", start_year, sep='_')]=='absent' | is.na(occurrences_timeslot[paste("occurrenceStatus", start_year, sep='_')]), 0, 1))
+occurrences_timeslot[paste("occurrenceStatus", end_year, sep='_')] <- as.integer(ifelse(occurrences_timeslot[paste("occurrenceStatus", end_year, sep='_')]=='absent' | is.na(occurrences_timeslot[paste("occurrenceStatus", end_year, sep='_')]), 0, 1))
+occurrences_timeslot["presentWithinTimeslot"] <- as.integer(ifelse(is.na(occurrences_timeslot["presentWithinTimeslot"]), 0, 1))
+occurrences_timeslot$introduced <- as.integer(ifelse(occurrences_timeslot[paste("occurrenceStatus", start_year, sep='_')] != 1 & (occurrences_timeslot[paste("occurrenceStatus", end_year, sep='_')] == 1 | occurrences_timeslot$presentWithinTimeslot) & occurrences_timeslot[paste("establishmentMeans", end_year, sep='_')] == 'introduced', 1, 0))
+
+lake_env_species <- merge(lake_env, occurrences_timeslot[c("waterBodyID", "taxonID", paste("occurrenceStatus", start_year, sep='_'), paste("occurrenceStatus", end_year, sep='_'), "introduced")], by="waterBodyID", all.x=TRUE, all.y=TRUE)
+lake_env_species[paste("occurrenceStatus", start_year, sep='_')][is.na(lake_env_species[paste("occurrenceStatus", start_year, sep='_')])] <- as.integer(0)
+lake_env_species[paste("occurrenceStatus", end_year, sep='_')][is.na(lake_env_species[paste("occurrenceStatus", end_year, sep='_')])] <- as.integer(0)
+lake_env_species["introduced"][is.na(lake_env_species["introduced"])] <- as.integer(0)
+
+lake_env_species <- lake_env_species[lake_env_species$observation_lake == 1,]
+
+summary_columns <- c(paste("occurrenceStatus", start_year, sep='_'), paste("occurrenceStatus", end_year, sep='_'), "introduced")
+occurrences_timeslot_wbid <- as.data.frame(occurrences_timeslot[append("waterBodyID",summary_columns)] %>%
+  group_by(waterBodyID) %>%
+  summarize_at(.vars = summary_columns, .funs = max))
+
+
+lake_env <- merge(lake_env, occurrences_timeslot_wbid, by="waterBodyID", all.x=TRUE)
+lake_env[paste("occurrenceStatus", start_year, sep='_')][is.na(lake_env[paste("occurrenceStatus", start_year, sep='_')])] <- as.integer(0)
+lake_env[paste("occurrenceStatus", end_year, sep='_')][is.na(lake_env[paste("occurrenceStatus", end_year, sep='_')])] <- as.integer(0)
+lake_env["introduced"][is.na(lake_env["introduced"])] <- as.integer(0)
+
+#for(s in focal_species) {
+#  lake_env[focal_species_str] <- inndata_timeslot[gsub(" ", "_", s)][match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID),]
+#}
+#lake_env[focal_species_str][is.na(lake_env[focal_species_str])] <- 0
+
+#lake_env$introduced <- as.integer(
+#  ifelse(lake_env[paste("occurrenceStatus", start_year, sep='_')] == 0 & lake_env[paste("occurrenceStatus", end_year, sep='_')] == 1 & lake_env[paste("establishmentMeans", end_year, sep='_')] == 'introduced', 1, 0))
+# inndata_timeslot$introduced[match(as.numeric(lake_env$waterBodyID), inndata_timeslot$waterBodyID)]
+# lake_env$introduced[is.na(lake_env$introduced)] <- 0
+
+#lake_env <- merge(lake_env, geoselect_no_species_pop_5000, by="waterBodyID", all.x=TRUE)
+#lake_env$n_pop <- ifelse(is.na(lake_env$n_pop), 0, lake_env$n_pop)
 
 #add recalculated closest distance based on new data
-a <- f_calc_dist(outdata=lake_env,species=focal_species_str)
-lake_env$dist_to_closest_pop_log <- log(a$dist_to_closest_pop)
-
+a <- f_calc_dist(outdata=lake_env,occurrences=paste("occurrenceStatus", start_year, sep='_'))
+a$dist_to_closest_pop_log <- log(a$dist_to_closest_pop)
+lake_env <- merge(lake_env, a, by="waterBodyID", all.x=TRUE)
+lake_env_species <- merge(lake_env_species, a, by="waterBodyID", all.x=TRUE)
+rm(a)
 # Remove objects that should not be kept for the following operations
 # rm(opt)
 
-save.image(paste0(workdir,"_",focal_group,".RData"))
+lake_env_species$countryCode <- factor(lake_env_species$countryCode)
+lake_env_species$county <- factor(lake_env_species$county)
 
 # Rydde opp i forbindelse mot server
 poolReturn(con)
 poolClose(pool)
+rm(pool)
+
+save.image(paste0(workdir,"_",focal_group,".RData"))
+

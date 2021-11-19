@@ -21,19 +21,26 @@ if (!require("optparse", character.only=T, quietly=T)) {
 library("optparse")
 
 option_list = list(
-  make_option(c("-s", "--species_group"), type="character", default=NULL, 
+  make_option(c("-s", "--species_group"), type="character", default=NULL,
               help="Species group to process", metavar="character"),
-  make_option(c("-w", "--workdir"), type="character", default="/data/R/Prosjekter/13845000_invafish/", 
+  make_option(c("-w", "--workdir"), type="character", default="/data/R/Prosjekter/13845000_invafish/",
               help="Name of the database to use", metavar="character"),
-  make_option(c("-c", "--cores"), type="integer", default=4, 
+  make_option(c("-c", "--cores"), type="integer", default=4,
               help="Number of cores to use for parallel processing", metavar="integer")
-); 
+);
 
 opt_parser = OptionParser(option_list=option_list);
 opt = parse_args(opt_parser);
 
+# Run with arguments:
+# Rscript --vanilla build_brt.R -s "Agn" -workdir "/data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/" -cores 20
+#
+# Run script on the command line in parallel for all species groups:
+# species_groups=$(psql -h "vm-srv-wallace.vm.ntnu.no" -d nofa -U "stefan" -At -c "SELECT DISTINCT ON (species_group) species_group FROM fremmedfisk.species_groups;")
+# echo "$species_groups" | awk '{print("Rscript --vanilla ~/fremmedfisk/R/build_brt.R -s " $1 " -w /data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/ -c 9 \0")}' | xargs -0 -P 5 -I{} bash -c "{}"
+
 # To run in IDE/RStudio skip option parsing and use this opt list
-# opt <- list("species_group"="Agn", "workdir"="/data/R/Prosjekter/13845000_invafish/", "cores"=45)
+# opt <- list("species_group"="Predator", "workdir"="/data/R/Prosjekter/13845000_invafish/fremmedfisk_opsjon/simulering/", "cores"=40)
 
 # To clarify
 # - "start populations" kun introduserte eller alle, hva med ukjente
@@ -44,9 +51,6 @@ opt = parse_args(opt_parser);
 # Parallelize simulations (they are slow (mainly predictions with many lakes)
 # Split script into three parts (1, data collection/wrangling, 2. model building,
 #   3. simulation and writing of data) so it can be run on the command line to avoid timeouts
-
-# Run with arguments:
-# Rscript --vanilla build_brt.R -s "Agn"
 
 
 
@@ -82,6 +86,9 @@ libraries(req_packages)
 
 workdir <- opt$workdir
 focal_group <- opt$species_group
+#It is encuraged to do this with paralell computing speeds the prosess up to some extent.
+#Identify cores on current system
+cores <- opt$cores #detectCores(all.tests = FALSE, logical = FALSE) - 8
 
 # Load wrangled data
 load(paste0(workdir,"_",focal_group,".RData"))
@@ -92,54 +99,52 @@ load(paste0(workdir,"_",focal_group,".RData"))
 ###############################
 #focal_species_var<-"gjedde"
 #source("./R/f_geoselect.R")
-#outdata <- f_geoselect_inverse_spdf(geoselect="./Data/geoselect_native_Rutilus_rutilus.rds",inndata=outdata) #needs to be adressed
+#lake_env_species <- f_geoselect_inverse_spdf(geoselect="./Data/geoselect_native_Rutilus_rutilus.rds",inndata=lake_env_species) #needs to be adressed
 # make spatial selection for model estimation - Norway minus Finnmark, Troms and Nordland.
 # The distribution and native area for finnamark would create a lot of missery
 
 # e.g.
-# outdata <- outdata_data_gjedde[outdata_data_gjedde$countryCode =="NO",]
+# lake_env_species <- lake_env_species_data_gjedde[lake_env_species_data_gjedde$countryCode =="NO",]
 # or
-outdata <-inndata_timeslot[inndata_timeslot$countryCode =="NO",]  #lake_env[lake_env$countryCode =="NO",]
+# lake_env_species <- lake_env[lake_env$observation_lake == 1,] # inndata_timeslot[inndata_timeslot$countryCode =="NO",]  #lake_env[lake_env$countryCode =="NO",]
 
-#outdata <- merge(inndata_timeslot[,c('waterBodyID')], lake_env, by='waterBodyID', all.y=FALSE)
+#lake_env_species <- merge(inndata_timeslot[,c('waterBodyID')], lake_env, by='waterBodyID', all.y=FALSE)
 
-outdata$countryCode <- factor(outdata$countryCode)
-#outdata <- outdata %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
-#outdata <- outdata %>% filter((county %in% c("Aust-Agder","Vest-Agder","Telemark","Rogaland")))
-outdata$county <- factor(outdata$county)
-# outdata <- outdata[outdata$minimumElevationInMeters>0,]
-# outdata$n_pop <- NA
-# outdata$n_pop <- ifelse(outdata$waterBodyID %in% geoselect_no_gjedde_pop_5000$waterBodyID,geoselect_no_gjedde_pop_5000$count,outdata$n_pop)
+#lake_env_species$countryCode <- factor(lake_env_species$countryCode)
+#lake_env_species <- lake_env_species %>% filter(!(county %in% c("Finnmark","Troms","Nordland")))
+#lake_env_species <- lake_env_species %>% filter((county %in% c("Aust-Agder","Vest-Agder","Telemark","Rogaland")))
+#lake_env_species$county <- factor(lake_env_species$county)
+# lake_env_species <- lake_env_species[lake_env_species$minimumElevationInMeters>0,]
+# lake_env_species$n_pop <- NA
+# lake_env_species$n_pop <- ifelse(lake_env_species$waterBodyID %in% geoselect_no_gjedde_pop_5000$waterBodyID,geoselect_no_gjedde_pop_5000$count,lake_env_species$n_pop)
+#making a rougher latitude variable to make it les specific
+#lake_env_species$decimalLatitude_R<-round(lake_env_species$decimalLatitude,1)
+covariates <- c("distance_to_road_log","elevation" ,"decimalLatitude_R","dist_to_closest_pop_log", "SCI", "eurolst_bio10", "buffer_5000m_population_2011" ,"area_km2_log", "n_pop")
 
-covariates <- c("distance_to_road_log", "dist_to_closest_pop_log", "SCI", "eurolst_bio10","eurolst_bio11", "buffer_5000m_population_2006" ,"area_km2_log", "n_pop")
-
-#focal_species_vec <- unique(outdata$focal_species)
+#focal_species_vec <- unique(lake_env_species$focal_species)
 # remove all populations of focal species where focal species is present at start of time-slot
 # i.e. focal_specie. No idea how to do this in data.tables, but it's straith-forward with dplyr
 # using the programmable version of functions identified by underscore at the end (in this case filter_)
 #focal_species_var <- stringr::str_replace(string=focal_species_vec, pattern=" ", replacement="_")
 #select_focal <- paste("!(",focal_species_var,"==1 & introduced==0)")
-#analyse.df <- outdata %>% dplyr::filter_(select_focal)
-analyse.df <- as.data.frame(outdata) # convert to data.frame - needed for gbm.step input
+#analyse.df <- lake_env_species %>% dplyr::filter_(select_focal)
+analyse.df <- as.data.frame(lake_env_species) # convert to data.frame - needed for gbm.step input
 
 # Remove NoData
-analyse.df <- analyse.df[!is.na(analyse.df$introduced),]
+for (n in append(covariates, "introduced")) {
+  analyse.df <- analyse.df[!is.na(analyse.df[n]),]
+}
+analyse.df$introduced <- as.integer(analyse.df$introduced)
 
 ###############################
 # part 2: Make the brt model
 ###############################
 
 
-#It is encuraged to do this with paralell computing speeds the prosess up to some extent.
-#Identify cores on current system
-cores <- opt$cores #detectCores(all.tests = FALSE, logical = FALSE) - 8
-
 # Outer loop has 9 items, the inner 5
-
-
 #Create training function for gbm.step
 get.train.diganostic.func=function(tree.com,learn,indf){
-  
+
   k.out=list(interaction.depth=NA,
              shrinkage=NA,
              n.trees=NA,
@@ -147,7 +152,7 @@ get.train.diganostic.func=function(tree.com,learn,indf){
              cv.AUC=NA,
              deviance=NA,
              cv.deviance=NA)
-  
+
   #set seed for reproducibility
   k1<-try(gbm.step(data=indf,
                    gbm.x = covariates, #  Include variables at will here,"county"
@@ -163,9 +168,9 @@ get.train.diganostic.func=function(tree.com,learn,indf){
                    silent=TRUE,
                    plot.main = FALSE,
                    n.cores=1))
-  
+
   if(exists("k1")) {
-    if(! is.vector(k1)) {
+    if(! is.vector(k1) & !is.null(k1)) {
       k.out=try(list(interaction.depth=k1$interaction.depth,
                      shrinkage=k1$shrinkage,
                      n.trees=k1$n.trees,
@@ -180,7 +185,7 @@ get.train.diganostic.func=function(tree.com,learn,indf){
 
 #define complexity and learning rate
 tree.complexity<-c(1:9)
-learning.rate<-c(0.01, 0.025, 0.005, 0.0025,0.001)
+learning.rate<-c(0.01, 0.025, 0.005, 0.0025, 0.001)
 stepsize <- 100
 
 #setup parallel backend to use n processors
@@ -189,8 +194,8 @@ doParallel::registerDoParallel(cl)
 
 start.time <- Sys.time()
 #Run the actual function
-gbms <- foreach(i = tree.complexity, .packages = c('gbm', 'dismo', 'doParallel')) %:%
-  foreach(j = learning.rate, .packages = c('gbm', 'dismo', 'doParallel')) %dopar% {
+gbms <- foreach(i=tree.complexity, .packages = c('gbm', 'dismo', 'doParallel')) %:%
+  foreach(j=learning.rate, .packages = c('gbm', 'dismo', 'doParallel')) %dopar% {
     try(get.train.diganostic.func(tree.com=i,learn=j,indf=analyse.df))
   }
 end.time <- Sys.time()
@@ -256,14 +261,14 @@ train.results.par <- train.results.par[order(train.results.par$cv.deviance,-trai
 train.results.par #Includes a dataframe with ordered (numbered) choice based on AUC cv.dev and cv.AUC, be aware that there are mutiple ways of judging the models...
 
 # save training results as .rds for manual inspection
-saveRDS(train.results.par, paste0(simdir, "/brt_mod_norway_training_",focal_species_str,".rds"))
+saveRDS(train.results.par, paste0(workdir, "/brt_mod_norway_training_",focal_species_str,".rds"))
 
 
 best_params <- train.results.par[1,]
 
 
-# summed_likelyhood_for_non_introduction <- prod(1-ifelse(is.na(tmp_trans$prob_introduction),0,tmp_trans$prob_introduction))
-# summed_likelyhood_for_introduction <- 1 - summed_likelyhood_for_non_introduction
+# summed_likelihood_for_non_introduction <- prod(1-ifelse(is.na(tmp_trans$prob_introduction),0,tmp_trans$prob_introduction))
+# summed_likelihood_for_introduction <- 1 - summed_likelihood_for_non_introduction
 
 # For Agder with 378 rows in data.table
 #tc     lr interaction.depth shrinkage n.trees   AUC cv.AUC deviance
@@ -273,16 +278,17 @@ best_params <- train.results.par[1,]
 #6 0.0025                 6    0.0025    1000 0.977  0.941    0.034
 #6 0.0010                 6    0.0010    2900 0.976  0.936    0.031
 # Use best parametrization from train.results
-
+#
 # brt_mod<-gbm.fixed(data=analyse.df, gbm.x = c( "distance_to_road_log", "dist_to_closest_pop_log","SCI","minimumElevationInMeters","buffer_5000m_population_2006" ,"area_km2_log","n_pop"), gbm.y = "introduced",family = "bernoulli",tree.complexity = 9, learning.rate = 0.001,bag.fraction = 1,n.trees=4000)
-brt_mod <- gbm.step(data=analyse.df, gbm.x=covariates, gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees + (5 * stepsize))
+brt_mod <- gbm.step(data=analyse.df, gbm.x=covariates, gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=ifelse(best_params$n.trees < (10 * stepsize),stepsize, best_params$n.trees - (10 * stepsize)), max.trees=best_params$n.trees + (10 * stepsize))
 names(brt_mod$gbm.call)[1] <- "dataframe"
 
 predictors<-gbm.simplify(brt_mod, n.folds = 10, n.drops = "auto", alpha = 1, prev.stratify = TRUE,
                          eval.data = NULL, plot = TRUE)
 # Plot suggests to possibly also drop a second predictor (buffer_5000m_population_2006)
-brt_mod_simp<-gbm.step(data=analyse.df, gbm.x=predictors$pred.list[[1]], gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees - (5 * stepsize))
+brt_mod_simp<-gbm.step(data=analyse.df, keep.data = TRUE, gbm.x=predictors$pred.list[[1]], gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees - (15 * stepsize))
 #gbm.step(data=analyse.df, gbm.x = predictors$pred.list[[1]], gbm.y = "introduced",family = "bernoulli",tree.complexity = 8,step.size=100 ,learning.rate = 0.01,n.trees=1500)
 
 # save model object as .rds
-saveRDS(brt_mod_simp,paste0(simdir, "/brt_mod_norway_",focal_species_str,".rds"))
+saveRDS(brt_mod_simp,paste0(workdir, "/brt_mod_norway_",focal_species_str,".rds"))
+

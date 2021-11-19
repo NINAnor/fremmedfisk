@@ -31,7 +31,10 @@ library(pool)
 
 ### Hent ut milj?data for alle innsj?er i Agder
 get_lake_environment <- function(db_conection, waterBodyIDs) {
-  sql_string <- paste("SELECT * FROM nofa.view_lake_environment AS a WHERE \"waterBodyID\" IN (", toString(waterBodyIDs, sep=','), ");", sep='')
+  sql_string <- paste("SELECT *
+                      , ST_X(ST_Transform(centroid, 4326)) AS \"decimalLongitude\"
+                      , ST_Y(ST_Transform(centroid, 4326)) AS \"decimalLatitude\"
+                      FROM nofa.view_lake_environment AS a WHERE \"waterBodyID\" IN (", toString(waterBodyIDs, sep=','), ");", sep='')
   res <- dbGetQuery(db_conection, sql_string)
   res
 }

@@ -12,7 +12,7 @@
 #' @return A data.frame with indtroduction probabilities on a yearly basis, including introduction events based on these probabilities (rbinom)
 
 # use boosted regression tree
-f_predict_introduction_events_gmb <-function(outdata,brt_mod,traindata,species,temp_inc,start_year, covariates){
+f_predict_introduction_events_gmb <-function(outdata,brt_mod,species,temp_inc,start_year, covariates){
   require(gbm)
   require(stringr)
   require(dplyr)
@@ -21,25 +21,21 @@ f_predict_introduction_events_gmb <-function(outdata,brt_mod,traindata,species,t
   #outdata$distance_to_road_log<-log(outdata$distance_to_road)
   #outdata$dist_to_closest_pop_log<-log(outdata$dist_to_closest_pop)
 
-  for(c in covariates) {
-    outdata[,c] <- ifelse(outdata[,c]>max(traindata[,c], na.rm=TRUE), max(traindata[,c], na.rm=TRUE), outdata[,c]) #print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
-    outdata[,c] <- ifelse(outdata[,c]<min(traindata[,c], na.rm=TRUE), min(traindata[,c], na.rm=TRUE), outdata[,c]) #print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
-  }
-  
   data_no_species<-outdata[outdata[[species2]] == 0,]
   data_w_species<-outdata[outdata[[species2]] == 1,]
   data_no_species$eurolst_bio01 <- data_no_species$eurolst_bio10+temp_inc #increase annual mean summer temperature for the period (scale to eurolist_bio10)
   data_no_species$prob_introduction<-predict.gbm(brt_mod,data_no_species,n.trees=brt_mod$gbm.cal$best.trees, type="response")#make probabilties over the full period
   #data_no_species$prob_introduction<-data_no_species$prob_introduction #annual estimates based on total introductions in time period
-  data_no_species$introduced<-rbinom(length(data_no_species$prob_introduction), size = 1, prob=data_no_species$prob_introduction)
-  data_no_species[[species2]]<-ifelse(data_no_species$introduced==1,1,0)
+  data_no_species$sim_introduced<-rbinom(length(data_no_species$prob_introduction), size = 1, prob=data_no_species$prob_introduction)
+  #data_no_species[[species2]]<-ifelse(data_no_species$introduced==1,1,0)
+  data_w_species$sim_introduced<-0
   outdata<-bind_rows(data_no_species,data_w_species)
   
   return(outdata)
 }
 
 # use boosted regression tree
-f_predict_introduction_events_gmb_group <-function(outdata,brt_mod,traindata,species,temp_inc,start_year){
+f_predict_introduction_events_gmb_group <-function(outdata,brt_mod,species,temp_inc,start_year){
   require(gbm)
   require(stringr)
   require(dplyr)
@@ -47,11 +43,6 @@ f_predict_introduction_events_gmb_group <-function(outdata,brt_mod,traindata,spe
   #outdata$distance_to_road<-outdata$distance_to_road+0.01 
   #outdata$distance_to_road_log<-log(outdata$distance_to_road)
   #outdata$dist_to_closest_pop_log<-log(outdata$dist_to_closest_pop)
-  
-  for(c in covariates) {
-    outdata[,c] <- ifelse(outdata[,c]>max(traindata[,c], na.rm=TRUE), max(traindata[,c], na.rm=TRUE), outdata[,c]) #print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
-    outdata[,c] <- ifelse(outdata[,c]<min(traindata[,c], na.rm=TRUE), min(traindata[,c], na.rm=TRUE), outdata[,c]) #print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
-  }
   
   data_no_species<-outdata[outdata[[species2]] == 0,]
   data_w_species<-outdata[outdata[[species2]] == 1,]
