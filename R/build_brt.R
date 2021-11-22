@@ -130,9 +130,14 @@ covariates <- c("distance_to_road_log","elevation" ,"decimalLatitude_R","dist_to
 #analyse.df <- lake_env_species %>% dplyr::filter_(select_focal)
 analyse.df <- as.data.frame(lake_env_species) # convert to data.frame - needed for gbm.step input
 
-# Remove NoData
+
 for (n in append(covariates, "introduced")) {
+  # Remove NoData
   analyse.df <- analyse.df[!is.na(analyse.df[n]),]
+  # Remove variables without variance
+  if (max(analyse.df[n]) == min(analyse.df[n])) {
+    covariates <- covariates[covariates != n]
+  }
 }
 analyse.df$introduced <- as.integer(analyse.df$introduced)
 
@@ -170,7 +175,7 @@ get.train.diganostic.func=function(tree.com,learn,indf){
                    n.cores=1))
 
   if(exists("k1")) {
-    if(! is.vector(k1) & !is.null(k1)) {
+    if(!is.vector(k1) & !is.null(k1) & is.list(k1)) {
       k.out=try(list(interaction.depth=k1$interaction.depth,
                      shrinkage=k1$shrinkage,
                      n.trees=k1$n.trees,
@@ -280,13 +285,13 @@ best_params <- train.results.par[1,]
 # Use best parametrization from train.results
 #
 # brt_mod<-gbm.fixed(data=analyse.df, gbm.x = c( "distance_to_road_log", "dist_to_closest_pop_log","SCI","minimumElevationInMeters","buffer_5000m_population_2006" ,"area_km2_log","n_pop"), gbm.y = "introduced",family = "bernoulli",tree.complexity = 9, learning.rate = 0.001,bag.fraction = 1,n.trees=4000)
-brt_mod <- gbm.step(data=analyse.df, gbm.x=covariates, gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=ifelse(best_params$n.trees < (10 * stepsize),stepsize, best_params$n.trees - (10 * stepsize)), max.trees=best_params$n.trees + (10 * stepsize))
+brt_mod <- gbm.step(data=analyse.df, gbm.x=covariates, gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees - (15 * stepsize))
 names(brt_mod$gbm.call)[1] <- "dataframe"
 
-predictors<-gbm.simplify(brt_mod, n.folds = 10, n.drops = "auto", alpha = 1, prev.stratify = TRUE,
+predictors <- gbm.simplify(brt_mod, n.folds = 10, n.drops = "auto", alpha = 1, prev.stratify = TRUE,
                          eval.data = NULL, plot = TRUE)
 # Plot suggests to possibly also drop a second predictor (buffer_5000m_population_2006)
-brt_mod_simp<-gbm.step(data=analyse.df, keep.data = TRUE, gbm.x=predictors$pred.list[[1]], gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees - (15 * stepsize))
+brt_mod_simp <- gbm.step(data=analyse.df, keep.data = TRUE, gbm.x=predictors$pred.list[[length(predictors$pred.list)]], gbm.y="introduced", family="bernoulli", tree.complexity=best_params$tc, step.size=100, learning.rate=best_params$lr, n.trees=best_params$n.trees - (5 * stepsize), max.trees=best_params$n.trees - (15 * stepsize))
 #gbm.step(data=analyse.df, gbm.x = predictors$pred.list[[1]], gbm.y = "introduced",family = "bernoulli",tree.complexity = 8,step.size=100 ,learning.rate = 0.01,n.trees=1500)
 
 # save model object as .rds

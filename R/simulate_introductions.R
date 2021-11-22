@@ -54,6 +54,7 @@ opt = parse_args(opt_parser);
 #
 # Run in parallel on the commandline with 15 parallel process divided by 5*100 NSims and 3 different slope thresholds (600, 700, 800)
 # for s in $(seq 1 5); do for t in 600 700 800; do echo $t $s; done; done | awk '{print("Rscript --vanilla R/simulate_introductions.R --species_group Agn --workdir /data/R/Prosjekter/13845000_invafish/ --nsims 100 --slope_measure slope_7_maximum --slope_thresholds", $1, "--temperature_increase 0 --scenario_name scenario_" $2, "\0")}' | xargs -0 -P15 -I{} bach -c "{}"
+# for s in ${species_groups}; do for t in 600 700 800; do echo $t $s; done; done | awk '{print("Rscript --vanilla ~/fremmedfisk/R/simulate_introductions.R --species_group " $2 " --workdir /data/scratch/fremmedfisk/ --nsims 500 --slope_measure slope_7_maximum --slope_thresholds", $1, "--temperature_increase 0 --scenario_name scenario_0 \0")}' | xargs -0 -P15 -I{} bash -c "{}"
 
 if (!require('devtools', character.only=T, quietly=T)) {
   # Requires OpenSSL on the system
@@ -305,6 +306,9 @@ analyse.df <- as.data.frame(lake_env_species)
 for(c in covariates) {
   inndata_sim1[,c] <- ifelse(inndata_sim1[,c]>max(analyse.df[,c], na.rm=TRUE), max(analyse.df[,c], na.rm=TRUE), analyse.df[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
   inndata_sim1[,c] <- ifelse(inndata_sim1[,c]<min(analyse.df[,c], na.rm=TRUE), min(analyse.df[,c], na.rm=TRUE), analyse.df[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
+  # Remove NoData lakes
+  inndata_sim1 <- inndata_sim1[!is.na(inndata_sim1[,c]),]
+
 }
 
 # Exclude lakes with values the model has not seen...

@@ -141,8 +141,11 @@ source('./R/git_wrangle.R')
 source('./R/get_lake_environment.R')
 #add recalculated closest distance based on new data
 source('./R/f_calc_distance.R')
-
-focal_species_group <- dbGetQuery(con, paste0('SELECT "species_group", string_agg(CAST(taxonid AS varchar), \',\') AS taxonid,  string_agg(CAST("scientificName" AS varchar), \',\') AS scientificname FROM (SELECT * FROM fremmedfisk.species_groups NATURAL INNER JOIN (SELECT "taxonID" AS taxonid, "scientificName" FROM nofa.l_taxon) AS t WHERE species_group = \'',focal_group,'\') AS x GROUP BY "species_group";')) # WHERE "taxonID" = ', focal_group, ';'))[,1]
+if(focal_group == "All") {
+  focal_species_group <- dbGetQuery(con, paste0('SELECT \'All\' AS "species_group", string_agg(CAST(taxonid AS varchar), \',\') AS taxonid,  string_agg(CAST("scientificName" AS varchar), \',\') AS scientificname FROM (SELECT * FROM fremmedfisk.species_groups NATURAL INNER JOIN (SELECT "taxonID" AS taxonid, "scientificName" FROM nofa.l_taxon) AS t) AS x;'))
+} else {
+  focal_species_group <- dbGetQuery(con, paste0('SELECT "species_group", string_agg(CAST(taxonid AS varchar), \',\') AS taxonid,  string_agg(CAST("scientificName" AS varchar), \',\') AS scientificname FROM (SELECT * FROM fremmedfisk.species_groups NATURAL INNER JOIN (SELECT "taxonID" AS taxonid, "scientificName" FROM nofa.l_taxon) AS t WHERE species_group = \'',focal_group,'\') AS x GROUP BY "species_group";')) # WHERE "taxonID" = ', focal_group, ';'))[,1]
+}
   #dbGetQuery(con, paste0('SELECT "taxonID", scientificName" FROM nofa.l_taxon WHERE "taxonID" = ', focal_group, ';'))[,1]
 focal_species_str <- tolower(focal_group)
 focal_species <- strsplit(focal_species_group[,3], ",")[[1]]
