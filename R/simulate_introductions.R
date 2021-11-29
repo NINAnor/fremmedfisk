@@ -69,7 +69,7 @@ if (!require('easypackages', character.only=T, quietly=T)) {
 
 library(easypackages)
 
-req_packages <- c('sf', 'dplyr', 'getPass', 'dbplyr', 'lubridate', 'FNN', 'stringr', 'gbm', 'dismo', 'doParallel', 'RPostgreSQL', 'pool', 'postGIStools')
+req_packages <- c('sf', 'dplyr', 'getPass', 'dbplyr', 'lubridate', 'FNN', 'stringr', 'gbm', 'dismo', 'doParallel', 'RPostgres', 'RPostgreSQL', 'pool', 'postGIStools')
 
 for (p in req_packages) {
   if(!require(p, character.only=T, quietly=T)){
@@ -90,7 +90,6 @@ Nsims <- opt$nsims # number of iterations
 print(Nsims)
 slope_measure <- opt$slope_measure
 focal_species_slope <- as.integer(str_split(opt$slope_thresholds, ",")[[1]])
-print(opt)
 print("scenario_name" %in% names(opt))
 scen_name <- opt$scenario_name
 print(scen_name)
@@ -129,6 +128,8 @@ opt_old <- opt
 opt <- opt_1
 rm(opt_1)
 
+lake_env <- merge(lake_env, wbid_wrid, all.x=TRUE, by="waterBodyID")
+
 # time_slot_length <- opt_old$time_slot_length # Duration of the time-slot, in years (time-span of each time-slot), used to estimate establishment probability
 Nsims <- opt$nsims # number of iterations
 print(Nsims)
@@ -139,7 +140,7 @@ end_year_sim <- start_year_sim + time_slot_length
 temp_inc <- opt$temperature_increase # temperature increase
 
 
-pg_drv <- RPostgreSQL::PostgreSQL()
+pg_drv <- RPostgres::Postgres()
 pg_db <- 'nofa'
 ### Setup database connection
 if (file.exists("~/.pgpass") & "host" %in% names(opt_old) & "user" %in% names(opt_old)) {
@@ -164,7 +165,7 @@ if (rstudioapi::isAvailable()) {
 }
 }
 pool <- dbPool(
-  drv = pg_drv,
+  drv = RPostgres::Postgres(),
   dbname = pg_db,
   host = pg_host,
   user = pg_user,
@@ -304,11 +305,10 @@ analyse.df <- as.data.frame(lake_env_species)
 
 # Begrens data i kovariatene til data-range i analyse dataene
 for(c in covariates) {
-  inndata_sim1[,c] <- ifelse(inndata_sim1[,c]>max(analyse.df[,c], na.rm=TRUE), max(analyse.df[,c], na.rm=TRUE), analyse.df[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
-  inndata_sim1[,c] <- ifelse(inndata_sim1[,c]<min(analyse.df[,c], na.rm=TRUE), min(analyse.df[,c], na.rm=TRUE), analyse.df[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
+  # inndata_sim1[,c] <- ifelse(inndata_sim1[,c]>max(analyse.df[,c], na.rm=TRUE), max(analyse.df[,c], na.rm=TRUE), inndata_sim1[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
+  # inndata_sim1[,c] <- ifelse(inndata_sim1[,c]<min(analyse.df[,c], na.rm=TRUE), min(analyse.df[,c], na.rm=TRUE), inndata_sim1[,c]) # print(paste0(c, ": adf: ", min(analyse.df[c]), "idf: ", min(inndata_sim[c])))
   # Remove NoData lakes
   inndata_sim1 <- inndata_sim1[!is.na(inndata_sim1[,c]),]
-
 }
 
 # Exclude lakes with values the model has not seen...
@@ -325,9 +325,8 @@ poolClose(pool)
 for(slope_barrier in barriers) { # max slope for migration upstream
 
   # Restart connection to avoid timeout
-  pg_drv <- RPostgreSQL::PostgreSQL()
   pool <- dbPool(
-    drv = pg_drv,
+    drv = RPostgres::Postgres(),
     dbname = pg_db,
     host = pg_host,
     user = pg_user,
@@ -341,11 +340,12 @@ for(slope_barrier in barriers) { # max slope for migration upstream
     #introduction_lakes <- tmp_trans[tmp_trans$sim_introduced==1,]$waterBodyID
     # species_lakes <- tmp_trans$waterBodyID[tmp_trans$sim_introduced==1]
     # introduction_wrid <- wbid_wrid$wrid[wbid_wrid$waterBodyID %in% species_lakes]
-    species_wrid_wbid <- wbid_wrid[wbid_wrid$waterBodyID %in% inndata_sim1[(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1 & inndata_sim1["observation_lake"]==1),]$waterBodyID,]
+    species_wrid_wbid <- inndata_sim1[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1,][c("wrid","waterBodyID")]
+    # wbid_wrid[wbid_wrid$waterBodyID %in% inndata_sim1[(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1 & inndata_sim1["observation_lake"]==1),]$waterBodyID,]
     disperse_input <- species_wrid_wbid %>%
       group_by(wrid) %>%
       summarise(waterBodyIDs = toString(waterBodyID))
-    reachable_lakes_species_start <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)
+    reachable_lakes_species_start <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)[,1]
     # poolReturn(con)
   }
   # Lakes that are reachable at the beginning of a simulation already should be flaged
@@ -376,10 +376,11 @@ for(slope_barrier in barriers) { # max slope for migration upstream
         #introduction_lakes <- tmp_trans[tmp_trans$sim_introduced==1,]$waterBodyID
         # species_lakes <- tmp_trans$waterBodyID[tmp_trans$sim_introduced==1]
         # introduction_wrid <- wbid_wrid$wrid[wbid_wrid$waterBodyID %in% species_lakes]
-        species_wrid_wbid <- wbid_wrid[wbid_wrid$waterBodyID %in% tmp_trans[tmp_trans$sim_introduced==1,]$waterBodyID,]
-        disperse_input <- species_wrid_wbid %>%
+        species_wrid_wbid <- tmp_trans[tmp_trans$sim_introduced==1,][c("wrid","waterBodyID")]
+        #species_wrid_wbid <- wbid_wrid[wbid_wrid$waterBodyID %in% tmp_trans[tmp_trans$sim_introduced==1,]$waterBodyID,]
+        disperse_input <- as.data.frame(species_wrid_wbid %>%
              group_by(wrid) %>%
-             summarise(waterBodyIDs = toString(waterBodyID))
+             summarise(waterBodyIDs = toString(waterBodyID)))
 
         # introduction_lakes <- wbid_wrid$waterBodyID[wbid_wrid$waterBodyID %in% species_lakes]
         #assign new introductions
@@ -389,11 +390,13 @@ for(slope_barrier in barriers) { # max slope for migration upstream
         if(use_slope_barrier==TRUE){
           # wbid_wrid_array <- get_wbid_wrid_array(con, species_lakes)
           # foreach(i=1:length(disperse_input$wrid)) %dopar% {print(paste0(disperse_input$wrid[i], disperse_input$waterBodyIDs[i]))}
-          reachable_lakes_species <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)
-          if(length(reachable_lakes_species)>0){
-            reachable_lakes_species <- reachable_lakes_species[,1]
-            if(length(fish_barrier) > 0) {
+          reachable_lakes_species <- as.data.frame(get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table))
+          names(reachable_lakes_species) <- "waterBodyID"
+          if(length(reachable_lakes_species$waterBodyID)>0){
+            reachable_lakes_species$sim_introduced_secondary <- 1
+            if(!is.na(fish_barrier) & length(fish_barrier) > 0) {
             if(length(intersect(fish_barrier, tmp_trans[tmp_trans$introduced==1,]$waterBodyID))==0) {
+                ### Warning not updated
                 reachable_lakes_species <- setdiff(reachable_lakes_species, fish_barrier)
                 }
             }
@@ -403,7 +406,8 @@ for(slope_barrier in barriers) { # max slope for migration upstream
             # reachable_lakes_species <- setdiff(reachable_lakes_species, inndata_sim$waterBodyID[inndata_sim[focal_species_str]==1])
             # finally assign introduction to downstream lakes (without previous obs/intro)
 
-            tmp_trans$sim_introduced_secondary <- ifelse(tmp_trans$waterBodyID %in% reachable_lakes_species,1,0)
+            tmp_trans <- merge(tmp_trans, reachable_lakes_species, all.x=TRUE, by="waterBodyID")
+            tmp_trans$sim_introduced_secondary[is.na(tmp_trans$sim_introduced_secondary)] <- 0
           }
         }
         ##..or dispersal probability based on analyses from Sam and Stefan
@@ -418,7 +422,9 @@ for(slope_barrier in barriers) { # max slope for migration upstream
 
       poolReturn(con)
 
-      } # end of secondary==TRUE if statement
+      } else {
+        tmp_trans$sim_introduced_secondary <- 0
+        } # end of secondary==TRUE if statement
 
       ### Store output from time-period i, simulationrun j
 
@@ -445,7 +451,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
       tmp_output <- data.frame(id=tmp_trans$waterBodyID,
                                intro_is_primary=tmp_trans$sim_introduced,
                                intro_is_secondary=tmp_trans$sim_introduced_secondary,
-                               #time_slot_i=time_slot_i,
+                               intro_total=1,
                                #sim_j=sim_j,
                                start_year=start_year_sim + ((i-1)*time_slot_length))
 
@@ -455,7 +461,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
       # sum up to minimize data size
       sim_output <- as.data.frame(sim_output %>%
                       group_by(id, start_year) %>%
-                      summarize(intro_is_primary=sum(intro_is_primary),intro_is_secondary=sum(intro_is_secondary)))
+                      summarize(intro_is_primary=sum(intro_is_primary),intro_is_secondary=sum(intro_is_secondary),intro_total=sum(intro_total)))
 
       ### modify inndata_sim with new introductions to provide innput to time_slot i+1
       if(n_time_slots > 1) {
@@ -509,8 +515,10 @@ for(slope_barrier in barriers) { # max slope for migration upstream
 
   sim_output$p_intro_is_primary <- sim_output$intro_is_primary / (Nsims)
   sim_output$p_intro_is_secondary <- sim_output$intro_is_secondary / (Nsims)
-  sim_output$reachable_at_start <- ifelse(sim_output$id %in% reachable_lakes_species_start[,1], 1, 0)
-
+  sim_output$p_intro_total <- sim_output$intro_total / (Nsims)
+  sim_output$reachable_at_start <- ifelse(sim_output$id %in% reachable_lakes_species_start, 1, 0)
+  sim_output$present_at_start <- ifelse(sim_output$id %in% species_wrid_wbid$waterBodyID, 1, 0)
+  
   #tmpout[[scen_name]] <- list()
   #tmpout[[scen_name]][["sim_output"]] <- sim_output
   #tmpout[[scen_name]][["inndata_sim1"]] <- inndata_sim1
@@ -523,10 +531,25 @@ for(slope_barrier in barriers) { # max slope for migration upstream
   slopeout <- list()
   slopeout[[paste0("sim_output_", slope_barrier)]] <- sim_output
 
+  lake_env <- f_predict_introduction_events_gmb(lake_env,brt_mod,paste("occurrenceStatus", start_year_sim, sep='_'),temp_inc,start_year_sim, covariates)
+  lake_env$reachable_at_start <- ifelse(lake_env$waterBodyID %in% reachable_lakes_species_start, 1, 0)
+
+  con <- poolCheckout(pool)
+  dbWriteTable(con, name=Id(schema=project_schema, table=paste("sim",
+                            tolower(focal_species_str),
+                            start_year_sim,
+                            "lake_env",
+                            sep="_")
+  ),
+  value=data.frame(id=lake_env$waterBodyID, intro_prob=lake_env$prob_introduction, reachable_at_start=lake_env$reachable_at_start),
+  #row.names=FALSE,
+  overwrite=TRUE)
+  poolReturn(con)
+  
+  
   # Write lake-specific summary to database
   con <- poolCheckout(pool)
-  dbWriteTable(con, c(project_schema,
-                      paste("sim",
+  dbWriteTable(con, name=Id(schema = project_schema, table = paste("sim",
                              tolower(focal_species_str),
                              scen_name,
                              Nsims,
@@ -536,6 +559,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
                              , sep="_")
                       ),
                value=sim_output,
+               #row.names=FALSE,
                overwrite=TRUE)
 
   poolReturn(con)
