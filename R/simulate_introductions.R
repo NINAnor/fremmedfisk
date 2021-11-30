@@ -240,21 +240,21 @@ if(with_secondary) {
 
 if(!is.na(exwaterbodyID)) {
   if(exwaterbodyID == "all") {
-    exwaterbodyID <- inndata_sim1$waterBodyID[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1]
+    exwaterbodyID <- inndata_sim1$waterBodyID[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1]==1]
   } else if(exwaterbodyID == "random") {
     # random extermination
     if (percentage_exter > 0 & percentage_exter < 1.0) {
-      inndata_sim1[ sample( which(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1), round(percentage_exter*length(which(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1)))), ][paste("occurrenceStatus", start_year_sim, sep='_')] <- 0
+      inndata_sim1[ sample( which(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1]==1), round(percentage_exter*length(which(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1]==1)))), ][paste("occurrenceStatus", start_year_sim, sep='_')][,1] <- 0
     } else if (percentage_exter == 1.0) {
      # Exterminate all pressent populations in VFO Trondelag....
-      inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')] <- 0
+      inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1] <- 0
     }
   }
 
   inndata_sim1[,paste("occurrenceStatus", start_year_sim, sep='_')][inndata_sim1$waterBodyID %in% exwaterbodyID] <- 0
 }
 
-if(sum(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')])==0) { # e.g. solabbor
+if(sum(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1])==0) { # e.g. solabbor
     inndata_sim1$n_pop <- 0
     inndata_sim1$dist_to_closest_pop_log <- Inf
   } else {
@@ -262,7 +262,7 @@ if(sum(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')])==0) { #
     # recalculate n_pop
     geoselect_no_occ_pop_5000 <-  dbGetQuery(con, paste0('SELECT al.id AS "waterBodyID", count(ol.geom) FROM
                                                   (SELECT id, geom FROM nofa.lake WHERE ARRAY[\'NO\'::varchar] <@ "countryCodes") AS al,
-                                           (SELECT nl.id, nl.geom FROM (SELECT unnest(ARRAY[', toString(unique(inndata_sim1$waterBodyID[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')] == 1])),']) AS id) AS ov NATURAL LEFT JOIN nofa.lake AS nl) AS ol
+                                           (SELECT nl.id, nl.geom FROM (SELECT unnest(ARRAY[', toString(unique(inndata_sim1$waterBodyID[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1] == 1])),']) AS id) AS ov NATURAL LEFT JOIN nofa.lake AS nl) AS ol
                                            WHERE ST_DWithin(al.geom, ol.geom, 5000) AND al.id != ol.id
                                            GROUP BY al.id'))
     names(geoselect_no_occ_pop_5000)[2] = "n_pop"
@@ -335,17 +335,18 @@ for(slope_barrier in barriers) { # max slope for migration upstream
   )
   con <- poolCheckout(pool)
 
-  if(with_secondary==TRUE && sum(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')])>0){
+  if(with_secondary==TRUE && sum(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1])>0){
     # get wbID from introductions in run i
     #introduction_lakes <- tmp_trans[tmp_trans$sim_introduced==1,]$waterBodyID
     # species_lakes <- tmp_trans$waterBodyID[tmp_trans$sim_introduced==1]
     # introduction_wrid <- wbid_wrid$wrid[wbid_wrid$waterBodyID %in% species_lakes]
-    species_wrid_wbid <- inndata_sim1[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1,][c("wrid","waterBodyID")]
+    species_wrid_wbid <- inndata_sim1[inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')][,1]==1,][c("wrid","waterBodyID")]
     # wbid_wrid[wbid_wrid$waterBodyID %in% inndata_sim1[(inndata_sim1[paste("occurrenceStatus", start_year_sim, sep='_')]==1 & inndata_sim1["observation_lake"]==1),]$waterBodyID,]
     disperse_input <- species_wrid_wbid %>%
       group_by(wrid) %>%
       summarise(waterBodyIDs = toString(waterBodyID))
-    reachable_lakes_species_start <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)[,1]
+    reachable_lakes_species_start <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table) #[,1]
+    reachable_lakes_species_start <- merge(reachable_lakes_species_start, inndata_sim1)$waterBodyID
     # poolReturn(con)
   }
   # Lakes that are reachable at the beginning of a simulation already should be flaged
@@ -390,8 +391,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
         if(use_slope_barrier==TRUE){
           # wbid_wrid_array <- get_wbid_wrid_array(con, species_lakes)
           # foreach(i=1:length(disperse_input$wrid)) %dopar% {print(paste0(disperse_input$wrid[i], disperse_input$waterBodyIDs[i]))}
-          reachable_lakes_species <- as.data.frame(get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table))
-          names(reachable_lakes_species) <- "waterBodyID"
+          reachable_lakes_species <- get_reachable_lakes(con, disperse_input$wrid, disperse_input$waterBodyIDs, "slope_7_maximum", slope_barrier, conmat_schema, conmat_table)
           if(length(reachable_lakes_species$waterBodyID)>0){
             reachable_lakes_species$sim_introduced_secondary <- 1
             if(!is.na(fish_barrier) & length(fish_barrier) > 0) {
@@ -406,7 +406,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
             # reachable_lakes_species <- setdiff(reachable_lakes_species, inndata_sim$waterBodyID[inndata_sim[focal_species_str]==1])
             # finally assign introduction to downstream lakes (without previous obs/intro)
 
-            tmp_trans <- merge(tmp_trans, reachable_lakes_species, all.x=TRUE, by="waterBodyID")
+            tmp_trans <- merge(tmp_trans, reachable_lakes_species, all.x=TRUE)
             tmp_trans$sim_introduced_secondary[is.na(tmp_trans$sim_introduced_secondary)] <- 0
           }
         }
@@ -466,7 +466,7 @@ for(slope_barrier in barriers) { # max slope for migration upstream
       ### modify inndata_sim with new introductions to provide innput to time_slot i+1
       if(n_time_slots > 1) {
         # Add new introductions to "focal_species_str" column in inndata_sim
-      tmp1 <- inndata_sim[paste("occurrenceStatus", start_year_sim, sep='_')]
+      tmp1 <- inndata_sim[paste("occurrenceStatus", start_year_sim, sep='_')][,1]
       inndata_sim[paste("occurrenceStatus", start_year_sim, sep='_')][inndata_sim$waterBodyID %in% tmp_trans$waterBodyID,] <- 1
 
 
