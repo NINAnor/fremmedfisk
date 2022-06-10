@@ -1,0 +1,40 @@
+influence<-summary(brt_mod)$rel.inf
+Variables<-c("Avstand til nærmeste populasjon i meter (log)", "Areal i km2 (log)","Gjennomsnitt-temperatur 3 varmeste måneder","Fylke","Avstand til vei (log)", "Shore line complexity")
+a<-NULL
+a$influence<-influence
+a$Variables<-factor(Variables, levels=c("Avstand til nærmeste populasjon i meter (log)", "Areal i km2 (log)","Gjennomsnitt-temperatur 3 varmeste måneder","Fylke","Avstand til vei (log)", "Shore line complexity"))
+a<-as.data.frame(a)
+a<-a[!a$Variables=="Fylke",]
+a<-a[!a$Variables=="Shore line complexity",]
+
+p <-ggplot(a,aes(Variables, influence))
+p +geom_bar(stat = "identity")+
+  #theme(text = element_text(size=16),axis.text.x=element_text(angle = -40, hjust = 0))+ 
+  ylab("Parameterinnflytelse (%)")+
+  xlab("")+
+  theme(
+    panel.background = element_blank()
+    ,panel.grid.major = element_blank()
+    ,panel.grid.minor = element_blank()
+    ,panel.border = element_rect(fill=NA,linetype = "dashed", colour = "black")
+    , legend.position="none"
+  )+
+  theme(axis.line = element_line(color = 'black'))
+
+
+
+#plot the functions
+gbm.plot(brt_mod,variable.no=0,smooth=T,x.label = "Avstand til nærmeste pop (log)", write.title = F,show.contrib=F,plot.layout=c(1, 1))
+
+#plot fits
+gbm.plot.fits(brt_mod,v=2, use.factor=F)
+
+# assess the extent to which pairwise interactions exist
+find.int <- gbm.interactions(brt_mod)
+find.int$interactions
+
+#for ranked list
+find.int$rank.list
+
+#to plot pairwise interactions
+gbm.perspec(brt_mod, 2, 6, theta = 235, phi=30,smooth="average",x.label="Innsjø-areal (km2)",y.label = "Avstand fra nærmeste gjeddepopulasjon",z.label= "") #under var1 and 2, fill in index number from rank.list. Addjust y.range and z.range if necessary 
